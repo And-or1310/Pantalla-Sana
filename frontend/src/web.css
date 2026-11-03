@@ -1,0 +1,3 @@
+/* Versión web: canvas de la cámara y cartas "brillantes" (antes se generaban recoloreando el PNG en Python). */
+.video-box canvas { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rar-brillante img { filter: hue-rotate(140deg) saturate(1.25); }

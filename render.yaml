@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: pantalla-sana-proxy
+    runtime: python
+    rootDir: proxy
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn proxy_server:app --host 0.0.0.0 --port $PORT
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false            # Render te lo pide al crear el servicio; NO va en el repo
+      - key: PS_PROVIDER
+        value: gemini
+      - key: PS_ALLOWED_ORIGINS
+        sync: false            # tu sitio de Netlify, p. ej. https://pantalla-sana.netlify.app
+      - key: PS_IP_PER_HOUR
+        value: "12"
+      - key: PS_GLOBAL_PER_DAY
+        value: "400"

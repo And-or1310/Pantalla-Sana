@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# La cámara exige HTTPS (Netlify lo da) y solo se permite a esta misma página.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Permissions-Policy = "camera=(self), microphone=()"
+    Referrer-Policy = "no-referrer"
+    X-Content-Type-Options = "nosniff"
