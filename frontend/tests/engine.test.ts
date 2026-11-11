@@ -1,10 +1,11 @@
 // Port de test_engine.py: prueba el motor SIN cámara ni internet, con reloj simulado.  npm test
+//LOS ERRORES- Son avisos del editor, no errores reales.
 const mem = new Map<string, string>();
 (globalThis as any).localStorage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
 
-const { Engine } = await import("../src/local/engine");
-const { mergeSettings, DEFAULT_SETTINGS } = await import("../src/local/store");
-const { buildSummary } = await import("../src/local/summary");
+const { Engine } = await import("../src/core/engine");
+const { mergeSettings, DEFAULT_SETTINGS } = await import("../src/core/store");
+const { buildSummary } = await import("../src/core/summary");
 
 const GOOD = { hd: 1.0, cl: 0.2, tl: 0.02, roll: 0.03 };
 const SLOUCH = { ...GOOD, hd: 0.55 };

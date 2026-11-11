@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, Unauthorized, useLive } from "./api";
-import { beep, playUrl, speak } from "./sound";
-import Home from "./Home";
-import Album from "./Album";
-import Week from "./Week";
-import Packs from "./Packs";
-import SettingsView from "./SettingsView";
-import type { Content, EventMsg, PackOpened } from "./types";
+import { api, Unauthorized, useLive } from "./lib/api";
+import { beep, playUrl, speak } from "./lib/sound";
+import Home from "./views/Home";
+import Album from "./views/Album";
+import Week from "./views/Week";
+import Packs from "./components/Packs";
+import SettingsView from "./views/SettingsView";
+import type { Content, EventMsg, PackOpened } from "./lib/types";
 
 type Tone = "ok" | "warn" | "bad" | "muted";
 type Item =
