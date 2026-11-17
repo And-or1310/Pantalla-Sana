@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { engine } from "../core/engine";
+import { account } from "../core/account";
 import { route } from "./router";
 import type { EventMsg, LiveState } from "./types";
-
-export class Unauthorized extends Error {}
 
 /** Misma firma que antes, pero ya no hay servidor: las rutas se resuelven dentro del navegador. */
 export async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
@@ -23,7 +22,6 @@ export function useLive(onEvent: (e: EventMsg) => void, host: Window = window) {
   return { state, online: true };
 }
 
-/** "Mi imagen" / "Mi sonido": se guarda en este navegador (IndexedDB). */
 export async function uploadFile<T>(kind: "image" | "sound", file: File): Promise<T> {
-  return (await engine.saveUserFile(kind, file)) as T;
+  return (await account.uploadFile(kind, file)) as T;
 }

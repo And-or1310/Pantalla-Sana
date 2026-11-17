@@ -1,6 +1,7 @@
 import { Lightbulb, LockKeyhole, Sparkles, Target } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { account } from "../core/account";
 import type { AIStatus, PingResult, Summary, SummaryPayload, WeekResponse } from "../lib/types";
 
 type Bar = { label: string; value: number | null; note?: string };
@@ -64,7 +65,7 @@ function AICard({ ai, busy, onProvider, onRun }: { ai: AIStatus; busy: boolean; 
 
 const postureTone = (v: number) => (v >= 75 ? "ok" : v >= 55 ? "warn" : "bad");
 
-export default function Week() {
+export default function Week({ revision, signedIn }: { revision: number; signedIn: boolean }) {
   const [week, setWeek] = useState<WeekResponse | null>(null);
   const [localSummary, setLocalSummary] = useState<Summary | null>(null);
   const [aiSummary, setAiSummary] = useState<Summary | null>(null);
@@ -73,21 +74,30 @@ export default function Week() {
   const [ai, setAi] = useState<AIStatus | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(() => {
+  const load = useCallback((resetAi = true) => {
     Promise.all([api<WeekResponse>("/week"), api<Summary>("/summary"), api<SummaryPayload>("/summary/payload"), api<AIStatus>("/ai")])
-      .then(([w, s, p, a]) => { setWeek(w); setLocalSummary(s); setAiSummary(null); setPayload(p); setAi(a); setError(false); })
+      .then(([w, s, p, a]) => { setWeek(w); setLocalSummary(s); if (resetAi) setAiSummary(null); setPayload(p); setAi(a); setError(false); })
       .catch(() => setError(true));
   }, []);
-  useEffect(load, [load]);
+  useEffect(() => {
+    if (!signedIn) { load(); return; }
+    let active = true;
+    const refresh = (initial = false) => {
+      void account.refreshHistory().then(() => { if (active) load(initial); }).catch(() => { if (active) setError(true); });
+    };
+    refresh(true);
+    const timer = window.setInterval(refresh, 10000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [load, revision, signedIn]);
 
-  const toggleDemo = () => api("/week/demo", week?.has_demo ? "DELETE" : "POST").then(load).catch(() => setError(true));
+  const toggleDemo = () => api("/week/demo", week?.has_demo ? "DELETE" : "POST").then(() => load()).catch(() => setError(true));
 
   const refreshAi = () => api<AIStatus>("/ai").then(setAi).catch(() => setError(true));
   const setProvider = (p: Prov) => api("/settings", "PUT", { ai_provider: p }).then(refreshAi).catch(() => setError(true));
   const runAi = () => { setBusy(true); api<Summary>("/summary/ai", "POST").then(setAiSummary).catch(() => setError(true)).finally(() => setBusy(false)); };
 
   const sum = (ai?.provider === "proxy" && aiSummary) || localSummary;
-  if (error) return <p className="loading">No pude cargar tu semana. ¿Sigue abierto el servidor?</p>;
+  if (error && !week) return <p className="loading">No pude cargar tu semana. {signedIn ? "Revisa tu conexión con Supabase." : "Vuelve a intentarlo."}</p>;
   if (!week || !sum) return <p className="loading">Cargando tu semana…</p>;
 
   return (
@@ -96,6 +106,7 @@ export default function Week() {
         <div><h2>Mi semana</h2><p className="muted">Tus hábitos de los últimos 7 días</p></div>
         <button className="btn" disabled={busy} onClick={toggleDemo}>{week.has_demo ? "Quitar datos de ejemplo" : "Cargar datos de ejemplo"}</button>
       </div>
+      {error && <p className="notice" role="status">No se pudo actualizar el historial. Mostramos la última versión disponible.</p>}
       {week.has_demo && <p className="notice" role="status">Estás viendo <b>datos de ejemplo</b> para la demostración. Se reemplazan solos con tus datos reales.</p>}
 
       <div className="week-overview">
@@ -128,9 +139,9 @@ export default function Week() {
 
       <details className="card privacy-box">
         <summary><LockKeyhole aria-hidden="true" /> Ver exactamente qué datos usa este resumen</summary>
-        <p className="muted small">Hoy el resumen se calcula <b>solo en tu equipo</b>: no se envía nada a internet. Si algún día
-          conectas una IA externa (opcional), esto es <b>lo único</b> que recibiría: números agregados, sin imágenes,
-          sin fechas exactas, sin tu nombre ni rutas.</p>
+        <p className="muted small">El resumen local se calcula en tu navegador. {signedIn && "Tu cuenta sincroniza métricas numéricas para mostrar tu historial en otros equipos. "}
+          Si usas la IA opcional, recibirá los datos de este cuadro: números agregados, sin imágenes,
+          sin fechas exactas ni tu nombre.</p>
         <pre>{JSON.stringify(payload?.payload, null, 2)}</pre>
       </details>
     </main>

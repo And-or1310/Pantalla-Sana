@@ -3,7 +3,8 @@
 El usuario final solo abre un enlace y permite la cámara. No instala nada.
 
     frontend/   app web (React + MediaPipe en el navegador)  -> Netlify
-    proxy/      servicio de IA (guarda tu API key)            -> Render
+    backend/    servicio de IA (guarda tu API key)           -> Render
+    supabase/migrations/  historial, perfil y permisos      -> Supabase
     render.yaml configuración de Render
 
 ## Probar en tu laptop
@@ -22,8 +23,15 @@ El usuario final solo abre un enlace y permite la cámara. No instala nada.
 ## 3) Cerrar el círculo
 En Render, pon `PS_ALLOWED_ORIGINS` = tu URL de Netlify y redespliega el proxy. Sin esto el navegador bloquea las llamadas a la IA.
 
+## 4) Habilitar cuentas en el sitio publicado
+
+1. Aplica en orden las migraciones de [historial](../supabase/migrations/202611170001_account_history.sql) y [perfil](../supabase/migrations/202611170002_account_profile.sql) en el proyecto Supabase que usará el sitio.
+2. Configura el proveedor Google en Supabase. Usa la URL de Netlify como URL de la app y autoriza el regreso a esa URL. En Google Cloud, registra el origen publicado y la URL de callback del proyecto Supabase.
+3. Agrega `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` a la configuración del frontend en Netlify y vuelve a desplegar.
+4. Prueba el inicio de sesión desde la URL publicada. Verifica el historial y el álbum con dos perfiles de navegador de la misma cuenta, y comprueba que una segunda cuenta ve su propio perfil.
+
 ## Limitaciones
 - Pestaña en segundo plano: el navegador la frena y los avisos se retrasan. Mejor dejarla en una ventana aparte visible.
-- Álbum, semana y ajustes quedan en el navegador de cada persona (no hay cuentas).
+- El álbum, el historial y los ajustes del invitado quedan en su navegador. Con una cuenta, Supabase los sincroniza entre equipos.
 - La primera carga baja ~10 MB de modelos de MediaPipe (WASM desde jsDelivr, modelos desde Google).
 - Gemini y Claude con clave propia ya no existen en la web: una clave en el navegador no es segura. Solo el servicio del equipo.

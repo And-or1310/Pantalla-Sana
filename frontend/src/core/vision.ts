@@ -17,6 +17,7 @@ export class Vision {
   private stream: MediaStream | null = null;
   private pose: PoseLandmarker | null = null;
   private face: FaceLandmarker | null = null;
+  private models: Promise<void> | null = null;
   private timer = 0;
   private frameWindow: Window | null = null;
   private nextFrame: (() => void) | null = null;
@@ -29,18 +30,25 @@ export class Vision {
   }
   private token = 0;
 
-  async start(onFrame: FrameCb, onReady: () => void, onFail: (e: unknown) => void) {
+  async start(deviceId: string, onFrame: FrameCb, onReady: () => void, onFail: (e: unknown) => void) {
     this.active = true;
     const tok = ++this.token;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("este navegador no tiene cámara");
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
+      const video = { width: 640, height: 480, ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" }) };
+      const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
       if (tok !== this.token) { stream.getTracks().forEach((t) => t.stop()); return; }
       this.stream = stream;
+      stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (tok !== this.token) return;
+        this.stop();
+        onFail(new Error("Se desconectó la cámara"));
+      });
       const v = (this.video ??= document.createElement("video"));
       v.muted = true; v.playsInline = true; v.srcObject = stream;
       await v.play();
-      if (!this.pose || !this.face) await this.loadModels();
+      this.models ??= this.loadModels().catch((error) => { this.models = null; throw error; });
+      await this.models;
       if (tok !== this.token) return;
       onReady();
       this.loop(onFrame, tok);
@@ -68,10 +76,16 @@ export class Vision {
     const { FilesetResolver, PoseLandmarker, FaceLandmarker } = await import("@mediapipe/tasks-vision");
     const fileset = await FilesetResolver.forVisionTasks(WASM);
     const make = async <T,>(f: (delegate: "GPU" | "CPU") => Promise<T>) => { try { return await f("GPU"); } catch { return f("CPU"); } };
-    this.pose = await make((delegate) => PoseLandmarker.createFromOptions(fileset,
+    const pose = await make((delegate) => PoseLandmarker.createFromOptions(fileset,
       { baseOptions: { modelAssetPath: POSE_MODEL, delegate }, runningMode: "VIDEO", numPoses: 1 }));
-    this.face = await make((delegate) => FaceLandmarker.createFromOptions(fileset,
-      { baseOptions: { modelAssetPath: FACE_MODEL, delegate }, runningMode: "VIDEO", numFaces: 1 }));
+    try {
+      this.face = await make((delegate) => FaceLandmarker.createFromOptions(fileset,
+        { baseOptions: { modelAssetPath: FACE_MODEL, delegate }, runningMode: "VIDEO", numFaces: 1 }));
+    } catch (error) {
+      pose.close();
+      throw error;
+    }
+    this.pose = pose;
     this.connections = PoseLandmarker.POSE_CONNECTIONS;
   }
 

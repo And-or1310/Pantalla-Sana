@@ -4,7 +4,7 @@ const mem = new Map<string, string>();
 (globalThis as any).localStorage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
 
 const { Engine } = await import("../src/core/engine");
-const { mergeSettings, DEFAULT_SETTINGS } = await import("../src/core/store");
+const { dayKey, mergeSettings, DEFAULT_SETTINGS, Metrics, Progress } = await import("../src/core/store");
 const { buildSummary } = await import("../src/core/summary");
 
 const GOOD = { hd: 1.0, cl: 0.2, tl: 0.02, roll: 0.03 };
@@ -66,4 +66,74 @@ console.log("6) Pausa");
 eng.setPaused(true);
 const snap = eng.snapshot(t);
 check("pausado -> sleep y EN PAUSA", snap.mood === "sleep" && snap.hero.tag === "EN PAUSA");
+
+console.log("7) Configuración de cámara y presencia");
+const monitored = new Engine(true, () => t);
+const opened: string[] = [];
+let stopped = 0;
+monitored.vision.start = async (id, _onFrame, onReady) => { opened.push(id); onReady(); };
+monitored.vision.stop = () => { stopped++; };
+monitored.setPaused(true);
+monitored.configureCamera("usb");
+check("la vista previa usa el dispositivo elegido", opened.at(-1) === "usb" && monitored.snapshot().camera_on);
+check("cámara tapada bloquea la calibración", !monitored.calibrate());
+t = run(monitored, GOOD, t, 1);
+check("la vista previa no registra tiempo", monitored.snapshot().session_sec === 0);
+check("presencia estable habilita la calibración", monitored.calibrate());
+monitored.ingest({}, null, t);
+monitored.step(t);
+check("perder la imagen interrumpe la calibración", monitored.snapshot().calibration_failed && !monitored.snapshot().calibrated);
+t = run(monitored, GOOD, t + 0.1, 1);
+check("se puede reintentar al regresar", monitored.calibrate());
+t = run(monitored, GOOD, t, 5);
+check("calibración válida activa el seguimiento", monitored.snapshot().calibrated && monitored.snapshot().session_sec > 0);
+let seconds = monitored.snapshot().session_sec;
+const offscreen = t + 30;
+for (; t < offscreen; t += 0.1) {
+  monitored.ingest({}, null, t);
+  monitored.step(t);
+}
+check("fuera de cuadro se detiene el registro y queda la cámara encendida",
+  monitored.snapshot().session_sec === seconds && monitored.snapshot().camera_on && monitored.snapshot().hero.tag === "TE BUSCO");
+t = run(monitored, GOOD, t, 2);
+check("las métricas se reanudan al regresar", monitored.snapshot().session_sec > seconds);
+monitored.configureCamera("integrada");
+check("cambiar de cámara exige calibrar de nuevo", opened.at(-1) === "integrada" && !monitored.snapshot().calibrated);
+monitored.setPaused(true);
+seconds = monitored.snapshot().session_sec;
+t = run(monitored, GOOD, t, 2);
+check("pausar o aplazar libera la cámara y bloquea el registro",
+  stopped > 0 && !monitored.snapshot().camera_on && monitored.snapshot().session_sec === seconds);
+
+console.log("8) Historial privado e importación");
+const guest = new Metrics();
+const accountHistory = new Metrics(false);
+guest.seedDemo(t);
+const localBefore = mem.get("ps.metrics");
+const day = dayKey(t);
+const localDays = guest.realDays();
+check("la importación excluye los datos de ejemplo", Object.keys(localDays).length < Object.keys(guest.days).length);
+check("la cuenta empieza con historial separado", Object.keys(accountHistory.days).length === 0);
+const morning = new Metrics(false);
+const afternoon = new Metrics(false);
+morning.record(t, 40 * 60, true, false, 12);
+afternoon.record(t, 25 * 60, true, true, 8);
+accountHistory.replaceSyncedDays([
+  { day, metrics: morning.realDays()[day] },
+  { day, metrics: afternoon.realDays()[day] },
+]);
+const combined = accountHistory.week(t).at(-1)!;
+check("une dos sesiones y calcula porcentajes por tiempo", combined.session_min === 65 &&
+  combined.posture_pct === 62 && combined.bpm_avg === 10.5);
+accountHistory.save(t);
+check("guardar la cuenta no sobrescribe el historial de invitado", mem.get("ps.metrics") === localBefore);
+
+const guestProgress = mem.get("ps.progress");
+const player = new Progress(false);
+player.good(35);
+const restoredPlayer = new Progress(false, structuredClone(player.snapshot()));
+restoredPlayer.good(25);
+restoredPlayer.save();
+check("el XP parcial continúa al restaurar el perfil de otro equipo", restoredPlayer.d.xp === 1);
+check("guardar el progreso de cuenta no sobrescribe el álbum local", mem.get("ps.progress") === guestProgress);
 console.log("\nTodo bien ✔");

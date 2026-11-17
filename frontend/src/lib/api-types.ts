@@ -637,6 +637,7 @@ export interface components {
             cal_progress: number;
             /** Calibrated */
             calibrated: boolean;
+            calibration_failed: boolean;
             /** Present */
             present: boolean;
             /** Eyes Closed */

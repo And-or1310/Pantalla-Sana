@@ -81,9 +81,9 @@ export function levelInfo(xp: number): [number, number, number] {
 export const stageOf = (level: number) => Math.min(3, Math.floor((level - 1) / 4));
 
 export interface CardInfo { pack: string; title: string; art: string; rarity: Rarity; got: string }
-interface ProgData {
+export interface ProgData {
   xp: number; streak: number; best: number; last_day: string; day: string; good_today: number; rescues: number;
-  album: Record<string, CardInfo>; packs: number; companion: string; log: Record<string, number>;
+  album: Record<string, CardInfo>; packs: number; companion: string; log: Record<string, number>; carry?: number; last_card?: string;
 }
 
 export class Progress {
@@ -91,9 +91,14 @@ export class Progress {
   news: string[] = [];
   RESCUE_XP = RESCUE_XP;
   private carry = 0;
-  constructor() {
+  constructor(private local = true, data?: ProgData | null) {
     this.d = { xp: 0, streak: 0, best: 0, last_day: "", day: "", good_today: 0, rescues: 0, album: {}, packs: 0,
-      companion: "", log: {}, ...ls.get<Partial<ProgData>>("ps.progress", {}) };
+      companion: "", log: {}, ...(local ? ls.get<Partial<ProgData>>("ps.progress", {}) : (data ?? {})) };
+    this.carry = this.d.carry ?? 0;
+    if (this.d.last_card === undefined) {
+      const keys = Object.keys(this.d.album);
+      this.d.last_card = keys[keys.length - 1] ?? "";
+    }
     this.roll();
   }
   private day(offset = 0) { return dayKey(Date.now() / 1000 - offset * 86400); }
@@ -138,6 +143,7 @@ export class Progress {
     if (old) return [old, false];
     const info: CardInfo = { pack: c.pack, title: c.name || c.title || "", art: c.art_url, rarity: r, got: this.day() };
     this.d.album[key] = info;
+    this.d.last_card = key;
     return [info, true];
   }
 
@@ -169,16 +175,16 @@ export class Progress {
   companionInfo(): CardInfo | null {
     const alb = this.d.album;
     if (alb[this.d.companion]) return alb[this.d.companion];
-    const keys = Object.keys(alb);
-    return keys.length ? alb[keys[keys.length - 1]] : null;
+    return alb[this.d.last_card ?? ""] ?? null;
   }
   setCompanion(key: string) { if (key in this.d.album) { this.d.companion = key; this.save(); } }
   streakNow() { return [this.day(), this.day(1)].includes(this.d.last_day) ? this.d.streak : 0; }
   summary() { return `Nv ${this.level()} · 🔥 ${this.streakNow()} d`; }
   save() {
     for (const k of Object.keys(this.d.log).sort().slice(0, -30)) delete this.d.log[k];
-    ls.set("ps.progress", this.d);
+    if (this.local) ls.set("ps.progress", this.snapshot());
   }
+  snapshot(): ProgData { return { ...this.d, carry: this.carry }; }
 }
 
 // ------------------------------------------------------------------ métricas por día (solo números)
@@ -186,15 +192,45 @@ const SLOTS: [string, number, number][] = [["madrugada", 0, 6], ["mañana", 6, 1
 const WEEKDAYS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"];
 const KEEP_DAYS = 60;
 
-interface DayData {
+export interface DayData {
   session_sec: number; good_sec: number; total_sec: number; alerts: Record<string, number>;
   bpm_w: number; bpm_sec: number; hours: Record<string, [number, number]>; demo?: boolean;
 }
 const empty = (): DayData => ({ session_sec: 0, good_sec: 0, total_sec: 0, alerts: {}, bpm_w: 0, bpm_sec: 0, hours: {} });
+type DailyMetrics = Omit<DayData, "demo">;
 
 export class Metrics {
-  days: Record<string, DayData> = ls.get("ps.metrics", {});
+  days: Record<string, DayData>;
   private lastSave = 0;
+
+  constructor(private local = true) {
+    this.days = local ? ls.get("ps.metrics", {}) : {};
+  }
+
+  realDays() {
+    const days: Record<string, DailyMetrics> = {};
+    for (const [date, day] of Object.entries(this.days)) {
+      if (day.demo || day.session_sec <= 0) continue;
+      const { session_sec, good_sec, total_sec, alerts, bpm_w, bpm_sec, hours } = day;
+      days[date] = { session_sec, good_sec, total_sec, alerts, bpm_w, bpm_sec, hours };
+    }
+    return days;
+  }
+
+  replaceSyncedDays(rows: { day: string; metrics: DailyMetrics }[]) {
+    const days: Record<string, DayData> = Object.fromEntries(Object.entries(this.days).filter(([, d]) => d.demo));
+    for (const { day, metrics } of rows) {
+      const target = !days[day] || days[day].demo ? (days[day] = empty()) : days[day];
+      for (const key of ["session_sec", "good_sec", "total_sec", "bpm_w", "bpm_sec"] as const) target[key] += metrics[key];
+      for (const [rule, count] of Object.entries(metrics.alerts)) target.alerts[rule] = (target.alerts[rule] ?? 0) + count;
+      for (const [hour, [bad, total]] of Object.entries(metrics.hours)) {
+        const slot = (target.hours[hour] ??= [0, 0]);
+        slot[0] += bad;
+        slot[1] += total;
+      }
+    }
+    this.days = days;
+  }
 
   private today(ts: number) {
     const k = dayKey(ts);
@@ -222,7 +258,7 @@ export class Metrics {
   save(ts = Date.now() / 1000) {
     this.lastSave = ts;
     for (const k of Object.keys(this.days).sort().slice(0, -KEEP_DAYS)) delete this.days[k];
-    ls.set("ps.metrics", this.days);
+    if (this.local) ls.set("ps.metrics", this.days);
   }
 
   private stat(key: string, d: DayData): DayStat {
