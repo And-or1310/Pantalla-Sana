@@ -1,3 +1,4 @@
+import { Lightbulb, LockKeyhole, Sparkles, Target } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type { AIStatus, PingResult, Summary, SummaryPayload, WeekResponse } from "../lib/types";
@@ -37,12 +38,11 @@ function AICard({ ai, busy, onProvider, onRun }: { ai: AIStatus; busy: boolean; 
   const on = ai.provider === "proxy";
   return (
     <section className="card ai-card">
-      <h3>✨ Redactar con IA <span className="badge">opcional · apagada por defecto</span></h3>
-      <p className="muted small">El resumen de arriba ya funciona sin IA y sin internet. Si quieres que una IA lo redacte mejor, actívala.
-        No necesitas ninguna clave. Solo recibe los números del cuadro «Ver exactamente qué datos usa este resumen».</p>
+      <h3><Sparkles aria-hidden="true" /> Redactar con IA <span className="badge">opcional · apagada por defecto</span></h3>
+      <p className="muted small">Elige cómo se redacta el resumen de la semana. Para usar IA, selecciona «Con IA» y pulsa «Mejorar con IA».</p>
       <div className="seg" role="radiogroup" aria-label="Redacción del resumen">
         {([["local", "Sin IA (local)"], ["proxy", "Con IA"]] as [Prov, string][]).map(([v, n]) => (
-          <button key={v} role="radio" aria-checked={ai.provider === v} className={ai.provider === v ? "on" : ""} onClick={() => onProvider(v)}>{n}</button>
+          <button key={v} role="radio" aria-checked={ai.provider === v} className={ai.provider === v ? "on" : ""} disabled={busy} onClick={() => onProvider(v)}>{n}</button>
         ))}
       </div>
       {on && (
@@ -55,7 +55,7 @@ function AICard({ ai, busy, onProvider, onRun }: { ai: AIStatus; busy: boolean; 
           {ping && <small role="status" className={ping.startsWith("✓") ? "ok-txt" : "muted"}>{ping}</small>}
         </div>
       )}
-      <button className="btn primary" disabled={!on || busy} onClick={onRun}>{busy ? "Redactando…" : "✨ Mejorar con IA"}</button>
+      <button className="btn primary" disabled={!on || busy} onClick={onRun}>{busy ? "Redactando…" : <><Sparkles aria-hidden="true" /> Mejorar con IA</>}</button>
       {on && <p className="muted small">Al pulsar, se enviarán a <b>{PROV_NAME.proxy}</b> únicamente los números del cuadro de privacidad.
         Si falla o no hay internet, verás el resumen local.</p>}
     </section>
@@ -66,7 +66,8 @@ const postureTone = (v: number) => (v >= 75 ? "ok" : v >= 55 ? "warn" : "bad");
 
 export default function Week() {
   const [week, setWeek] = useState<WeekResponse | null>(null);
-  const [sum, setSum] = useState<Summary | null>(null);
+  const [localSummary, setLocalSummary] = useState<Summary | null>(null);
+  const [aiSummary, setAiSummary] = useState<Summary | null>(null);
   const [payload, setPayload] = useState<SummaryPayload | null>(null);
   const [error, setError] = useState(false);
   const [ai, setAi] = useState<AIStatus | null>(null);
@@ -74,7 +75,7 @@ export default function Week() {
 
   const load = useCallback(() => {
     Promise.all([api<WeekResponse>("/week"), api<Summary>("/summary"), api<SummaryPayload>("/summary/payload"), api<AIStatus>("/ai")])
-      .then(([w, s, p, a]) => { setWeek(w); setSum(s); setPayload(p); setAi(a); setError(false); })
+      .then(([w, s, p, a]) => { setWeek(w); setLocalSummary(s); setAiSummary(null); setPayload(p); setAi(a); setError(false); })
       .catch(() => setError(true));
   }, []);
   useEffect(load, [load]);
@@ -83,30 +84,33 @@ export default function Week() {
 
   const refreshAi = () => api<AIStatus>("/ai").then(setAi).catch(() => setError(true));
   const setProvider = (p: Prov) => api("/settings", "PUT", { ai_provider: p }).then(refreshAi).catch(() => setError(true));
-  const runAi = () => { setBusy(true); api<Summary>("/summary/ai", "POST").then(setSum).catch(() => setError(true)).finally(() => setBusy(false)); };
+  const runAi = () => { setBusy(true); api<Summary>("/summary/ai", "POST").then(setAiSummary).catch(() => setError(true)).finally(() => setBusy(false)); };
 
+  const sum = (ai?.provider === "proxy" && aiSummary) || localSummary;
   if (error) return <p className="loading">No pude cargar tu semana. ¿Sigue abierto el servidor?</p>;
   if (!week || !sum) return <p className="loading">Cargando tu semana…</p>;
 
   return (
-    <main className="page">
+    <main className="page week-page">
       <div className="page-head">
         <div><h2>Mi semana</h2><p className="muted">Tus hábitos de los últimos 7 días</p></div>
-        <button className="btn" onClick={toggleDemo}>{week.has_demo ? "Quitar datos de ejemplo" : "Cargar datos de ejemplo"}</button>
+        <button className="btn" disabled={busy} onClick={toggleDemo}>{week.has_demo ? "Quitar datos de ejemplo" : "Cargar datos de ejemplo"}</button>
       </div>
       {week.has_demo && <p className="notice" role="status">Estás viendo <b>datos de ejemplo</b> para la demostración. Se reemplazan solos con tus datos reales.</p>}
 
-      <section className="card summary">
+      <div className="week-overview">
+        {ai && <AICard key={ai.provider} ai={ai} busy={busy} onProvider={setProvider} onRun={runAi} />}
+        <section className="card summary" aria-live="polite" aria-busy={busy}>
         <small className="label">{sum.source === "local" ? "Resumen de la semana · generado en tu equipo" : `Redactado por ${PROV_NAME[sum.source]} con tus números agregados`}</small>
         <h3>{sum.headline}</h3>
         <ul>{sum.points.map((p) => <li key={p}>{p}</li>)}</ul>
         {sum.tips.length > 0 && (<><small className="label">Para esta semana</small>
-          <ul className="tips">{sum.tips.map((t) => <li key={t}>💡 {t}</li>)}</ul></>)}
-        <p className="goal">🎯 {sum.goal}</p>
+          <ul className="tips">{sum.tips.map((t) => <li key={t}><Lightbulb aria-hidden="true" /> {t}</li>)}</ul></>)}
+        <p className="goal"><Target aria-hidden="true" /> {sum.goal}</p>
         {sum.note && <p className="notice" role="status">{sum.note}</p>}
-        {sum.source !== "local" && <button className="btn" onClick={load}>Volver al resumen local</button>}
-      </section>
-      {ai && <AICard key={ai.provider} ai={ai} busy={busy} onProvider={setProvider} onRun={runAi} />}
+        {sum.source !== "local" && <button className="btn" disabled={busy} onClick={() => setProvider("local")}>Volver al resumen local</button>}
+        </section>
+      </div>
 
       <div className="charts">
         <Bars title="Buena postura por día (%)" max={100} unit="%" tone={postureTone}
@@ -115,12 +119,15 @@ export default function Week() {
           data={week.days.map((d) => ({ label: d.label, value: d.session_min > 0 ? d.alerts_total : null }))} />
         <Bars title="¿Cuándo te encorvas? (% del tiempo)" max={100} unit="%" tone={(v) => (v >= 35 ? "bad" : v >= 20 ? "warn" : "ok")}
           data={week.slots.map((s) => ({ label: s.name, value: s.bad_pct }))} />
+      </div>
+      <details className="card week-extra-chart">
+        <summary>Ver gráfica de parpadeos</summary>
         <Bars title="Parpadeos por minuto" max={20} unit=" por min" tone={(v) => (v >= 10 ? "ok" : "warn")}
           data={week.days.map((d) => ({ label: d.label, value: d.bpm_avg === null ? null : Math.round(d.bpm_avg) }))} />
-      </div>
+      </details>
 
       <details className="card privacy-box">
-        <summary>🔒 Ver exactamente qué datos usa este resumen</summary>
+        <summary><LockKeyhole aria-hidden="true" /> Ver exactamente qué datos usa este resumen</summary>
         <p className="muted small">Hoy el resumen se calcula <b>solo en tu equipo</b>: no se envía nada a internet. Si algún día
           conectas una IA externa (opcional), esto es <b>lo único</b> que recibiría: números agregados, sin imágenes,
           sin fechas exactas, sin tu nombre ni rutas.</p>

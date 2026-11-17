@@ -59,7 +59,7 @@ Arranca el servidor:
 python -m uvicorn proxy_server:app --port 8787
 ```
  
-Comprueba en otra terminal:
+Comprueba en otra terminal(Opcional):
  
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8787/health     # ok : True

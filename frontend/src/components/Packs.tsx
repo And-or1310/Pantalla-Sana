@@ -1,3 +1,4 @@
+import { Gift, Image } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { PackOpened } from "../lib/types";
 
@@ -18,7 +19,7 @@ export default function Packs({ result, onClose }: { result: PackOpened | null; 
   return (
     <div className="modal" role="dialog" aria-modal="true" aria-label="Sobre de recompensa">
       <div className="card modal-box">
-        <h2>🎁 Tu sobre de recompensa</h2>
+        <h2><Gift aria-hidden="true" /> Tu sobre de recompensa</h2>
         <p className="muted" aria-live="polite">
           {!result ? "Abriendo tu sobre…" : !result.ok ? "No pude conseguir imágenes (¿sin internet?). Tu sobre no se gastó."
             : done ? `¡Listo! ${newCount} carta(s) nueva(s) en tu álbum.` : "Mira lo que salió…"}
@@ -31,7 +32,7 @@ export default function Packs({ result, onClose }: { result: PackOpened | null; 
               <div key={i} className={`flipper ${up ? "up" : ""}`}>
                 <div className="face back"><span>?</span></div>
                 <div className={`face front rar-${c?.rarity ?? "comun"}`}>
-                  {c?.art_url ? <img src={c.art_url} alt="" /> : <span>🖼️</span>}
+                  {c?.art_url ? <img src={c.art_url} alt="" /> : <Image aria-hidden="true" />}
                   <b>{c?.title}</b>
                   <small className="rar-label">{c ? RARITY_NAME[c.rarity].toUpperCase() : ""}</small>
                   <em>{c?.is_new ? "¡NUEVA!" : "Repetida · +3 XP"}</em>

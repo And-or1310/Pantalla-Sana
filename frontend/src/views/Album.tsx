@@ -1,3 +1,4 @@
+import { Gift, Image, Star } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type { AlbumItem } from "../lib/types";
@@ -18,19 +19,19 @@ export default function Album({ version, packs, onOpenPack }: { version: number;
           <h2>Mi álbum · {items?.length ?? 0} coleccionados</h2>
           <p className="muted">Toca una carta para hacerla tu compañero. El color del borde es su rareza.</p>
         </div>
-        <button className={`btn ${packs > 0 ? "primary" : ""}`} onClick={onOpenPack}>🎁 Abrir sobre ({packs})</button>
+        <button className={`btn ${packs > 0 ? "primary" : ""}`} onClick={onOpenPack}><Gift aria-hidden="true" /> Abrir sobre ({packs})</button>
       </div>
       {items && items.length === 0 && (
-        <p className="card empty">Todavía vacío: corrige tu postura cuando te avise y tu primera carta aparecerá aquí. 🥚</p>
+        <p className="card empty">Todavía vacío: corrige tu postura cuando te avise y tu primera carta aparecerá aquí.</p>
       )}
       <ul className="grid">
         {items?.map((it) => (
           <li key={it.key}>
             <button className={`tile rar-${it.rarity} ${it.is_companion ? "mine" : ""}`} onClick={() => pick(it.key)}
               aria-pressed={it.is_companion} aria-label={`${it.title}, ${RARITY_NAME[it.rarity]}${it.is_companion ? ", tu compañero" : ""}`}>
-              {it.art_url ? <img src={it.art_url} alt="" loading="lazy" /> : <span>🖼️</span>}
+              {it.art_url ? <img src={it.art_url} alt="" loading="lazy" /> : <Image aria-hidden="true" />}
               <b>{it.title}</b>
-              <small className="rar-label">{RARITY_NAME[it.rarity]}{it.is_companion ? " · ★ compañero" : ""}</small>
+              <small className="rar-label">{RARITY_NAME[it.rarity]}{it.is_companion && <> · <Star aria-hidden="true" /> compañero</>}</small>
             </button>
           </li>
         ))}

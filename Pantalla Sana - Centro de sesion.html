@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pantalla Sana · Centro de sesión</title>
+<style>
+:root {
+  color-scheme: light; --bg:#f7f6f3; --surface:#fffefa; --soft:#f0eee9; --line:#e8e4dc;
+  --ink:#252721; --muted:#595d53; --green:#224c3d; --green-ink:#fff; --mint:#e5f1e8;
+  --amber:#fff0d7; --warn:#714517; --accent:#dce8ff; --shadow:0 10px 24px #443b2910;
+  font:16px/1.5 "Segoe UI",system-ui,sans-serif;
+}
+:root[data-theme="dark"] {
+  color-scheme:dark; --bg:#191a22; --surface:#242630; --soft:#2d303b; --line:#3a3e4b; --ink:#f8f7fd;
+  --muted:#c5c4d0; --green:#a8ddc3; --green-ink:#182922; --mint:#263c35; --amber:#423319; --warn:#ffdaa0;
+  --accent:#303a58; --shadow:0 10px 24px #0003;
+}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink)}
+button,select{font:inherit;color:inherit}button{cursor:pointer}button:disabled{opacity:.52;cursor:default}
+:focus-visible{outline:3px solid #607bda;outline-offset:3px} [hidden]{display:none!important}
+h1,h2,h3,p,dl,dd{margin:0}h1{font-size:clamp(1.75rem,4.3vw,2.65rem);letter-spacing:-.045em;line-height:1.13}h2{font-size:1.12rem;letter-spacing:-.01em}h3{font-size:1rem}
+a{color:var(--green)}.muted{color:var(--muted)}.icon{display:inline-block;width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:7px 13px;background:var(--surface);border:1px solid var(--line);border-radius:12px;font-weight:650;font-size:.88rem}
+.button:hover{border-color:var(--muted)}.button.primary{background:var(--green);border-color:var(--green);color:var(--green-ink)}
+.button[aria-pressed=true]{background:var(--mint);border-color:var(--green);color:var(--green)}
+.shell{min-height:100dvh;display:grid;grid-template-columns:218px minmax(0,1fr);width:min(1440px,100%);margin:auto}
+.sidebar{padding:24px 16px;position:sticky;top:0;min-height:100dvh;align-self:start;border-right:1px solid var(--line);background:var(--surface)}
+.brand{display:flex;gap:10px;align-items:center;font-weight:750;margin:0 4px 32px}.mark{display:grid;place-items:center;width:35px;aspect-ratio:1;border-radius:11px;color:var(--green-ink);background:var(--green)}
+.nav{display:grid;gap:5px}.nav button{display:flex;align-items:center;gap:11px;min-height:44px;padding:8px 12px;border:0;border-radius:12px;background:transparent;text-align:left;color:var(--muted);font-weight:650;font-size:.9rem}
+.nav button:hover{background:var(--soft)}.nav button[aria-current=page]{background:var(--mint);color:var(--green)}
+main{min-width:0;padding:24px clamp(14px,4vw,48px) 36px}.topline,.split,.actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.topline,.split{justify-content:space-between}
+.topline{padding-bottom:17px;border-bottom:1px solid var(--line);margin-bottom:24px}.topline span{font-weight:650;color:var(--muted);font-size:.86rem}
+.pagehead{margin-bottom:18px}.pagehead p{margin-top:5px;color:var(--muted)}.state{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;border-radius:18px;background:var(--mint);padding:14px 17px;margin-bottom:16px}
+.state[data-tone=warn]{background:var(--amber);color:var(--warn)}.state strong{display:block}.state p{font-size:.86rem}.state-lead{display:flex;align-items:center;gap:10px}.state-lead .icon{width:23px;height:23px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.93fr);gap:16px;align-items:start}.column{display:grid;gap:14px}
+.card{padding:16px;border-radius:20px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow)}
+.camera{aspect-ratio:1;max-width:390px;margin:0 auto;position:relative;display:grid;place-items:center;overflow:hidden;border-radius:15px;background:radial-gradient(ellipse at 45% 38%,#475c57,#263a38 68%,#202f31);color:#c6ead9}
+.camera::before{content:"";position:absolute;inset:14% 24% 10%;border:2px dashed #c6ead96b;border-radius:46% 46% 13% 13%}.camera>.icon{width:30%;height:30%;stroke-width:.85}
+.camera[data-mode=hidden]::before,.camera[data-mode=off]::before{display:none}.camera[data-mode=off]>.icon{opacity:.43}.camera .camera-status{position:absolute;bottom:10px;left:10px;background:#101b19;color:#edf8f2;font-size:.74rem;padding:4px 9px;border-radius:8px}
+.camera-card h2{margin-bottom:10px}.camera-footer{margin-top:11px}.camera-footer small{font-size:.78rem}.camera-footer .button{min-height:37px}
+.metrics{display:grid;gap:16px;margin-top:13px}.metric small{color:var(--muted)}.metric b{font-size:.88rem}
+.track{background:var(--soft);height:7px;border-radius:9px;overflow:hidden;margin-top:5px}.track span{display:block;height:100%;width:var(--value);border-radius:inherit;background:var(--bar,var(--green))}
+.activity{list-style:none;margin:6px 0 0;padding:0}.activity li{display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid var(--line);font-size:.86rem}.activity li:last-child{border:0}.activity time{margin-left:auto;color:var(--muted);white-space:nowrap}
+.stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:11px}.stat-grid div{background:var(--soft);padding:8px;border-radius:10px}.stat-grid dt{font-size:.78rem;color:var(--muted)}.stat-grid dd{font-size:1.25rem;font-weight:700}
+.chart{height:145px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));align-items:stretch;gap:8px;margin-top:13px}.day{display:grid;grid-template-rows:1fr auto;text-align:center;gap:5px;font-size:.76rem;color:var(--muted)}.day div{display:grid;align-items:end;background:var(--soft);border-radius:8px;overflow:hidden}.day span{display:block;background:var(--green);height:var(--value)}
+.collection{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}.collect{min-height:100px;padding:8px;border-radius:14px;display:grid;place-items:center;background:var(--soft);border:2px solid transparent}.collect[aria-pressed=true]{border-color:var(--green)}.collect .icon{width:34px;height:34px;color:var(--green)}
+.setting{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;margin-top:13px}.setting select,.demo select{font:inherit;background:var(--surface);border:1px solid var(--line);color:var(--ink);padding:6px;border-radius:8px}
+.demo{margin-top:17px;padding:10px 13px;border:1px dashed var(--line);border-radius:13px;font-size:.84rem;color:var(--muted)}.demo summary{cursor:pointer;font-weight:650;color:var(--ink)}.demo label{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}
+dialog{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:20px;padding:16px;width:min(380px,calc(100vw - 24px));box-shadow:var(--shadow)}dialog::backdrop{background:#1118}.widget-sample .camera{aspect-ratio:4/3}.widget-sample .actions{margin-top:12px}
+.skip{position:absolute;top:-100px;background:var(--surface);z-index:10;padding:8px}.skip:focus{top:8px}
+@media(max-width:900px){.shell{grid-template-columns:163px minmax(0,1fr)}.sidebar{padding:20px 9px}.brand{gap:6px}}
+@media(max-width:700px){.shell{display:block}.sidebar{min-height:0;position:static;padding:10px 12px;border-right:0;border-bottom:1px solid var(--line)}.brand{margin:0 0 8px}.nav{display:flex;flex-wrap:wrap}.nav button{gap:5px;padding:6px 8px;font-size:.8rem}.nav .icon{width:16px;height:16px}main{padding-top:14px}.topline{margin-bottom:15px;padding-bottom:12px}.grid{grid-template-columns:1fr}.camera{max-width:340px}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="leaf" viewBox="0 0 24 24"><path d="M20 4v5a9 9 0 0 1-9 9H5v-5a9 9 0 0 1 9-9zM4 20l10-10"/></symbol>
+<symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v10h14V10M10 20v-6h4v6"/></symbol>
+<symbol id="chart" viewBox="0 0 24 24"><path d="M3 3v18h18M7 16v-4m5 4V7m5 9v-6"/></symbol>
+<symbol id="album" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 12h6m-3-3v6"/></symbol>
+<symbol id="settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--surface)"/><circle cx="15" cy="17" r="2" fill="var(--surface)"/></symbol>
+<symbol id="widget" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="12" y="12" width="6" height="5" rx="1"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+<symbol id="warning" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5m0 4h.01"/></symbol>
+<symbol id="person" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M4 21v-2a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v2"/></symbol>
+<symbol id="eye-off" viewBox="0 0 24 24"><path d="m3 3 18 18M10 5c4-1 9 2 11 7a12 12 0 0 1-3 4M14 19C9 20 5 17 3 12a12 12 0 0 1 3-4"/></symbol>
+<symbol id="pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+<symbol id="star" viewBox="0 0 24 24"><path d="m12 2 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/></symbol>
+</svg>
+<a href="#content" class="skip">Saltar al contenido</a>
+<div class="shell">
+<aside class="sidebar">
+  <div class="brand"><span class="mark"><svg class="icon" aria-hidden="true"><use href="#leaf"/></svg></span>Pantalla Sana</div>
+  <nav class="nav" aria-label="Menú principal">
+    <button data-page="home" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#icon-home"/></svg>Inicio</button>
+    <button data-page="week"><svg class="icon" aria-hidden="true"><use href="#chart"/></svg>Mi semana</button>
+    <button data-page="album-page"><svg class="icon" aria-hidden="true"><use href="#album"/></svg>Álbum</button>
+    <button data-page="preferences"><svg class="icon" aria-hidden="true"><use href="#settings"/></svg>Ajustes</button>
+  </nav>
+</aside>
+<main id="content" tabindex="-1">
+  <header class="topline"><span>Prototipo interactivo · Datos de ejemplo</span><button class="button primary" id="open-widget"><svg class="icon" aria-hidden="true"><use href="#widget"/></svg>Abrir widget</button></header>
+  <section id="home" class="page">
+    <header class="pagehead"><h1 tabindex="-1">Tu sesión</h1><p>Revisa tu postura y toma una pausa cuando la necesites.</p></header>
+    <div class="state" id="state">
+      <div class="state-lead"><svg class="icon" aria-hidden="true"><use id="state-icon" href="#check"/></svg><div role="status"><strong id="state-title">Seguimiento activo</strong><p id="state-text">Tu postura está bien. Próxima pausa en 5 minutos.</p></div></div>
+      <button class="button" id="state-action"><svg class="icon" aria-hidden="true"><use href="#pause"/></svg><span>Pausar</span></button>
+    </div>
+    <div class="grid">
+      <section class="card camera-card">
+        <h2>Tu cámara</h2>
+        <div class="camera" data-mode="on"><svg class="icon" aria-hidden="true"><use href="#person"/></svg><span class="camera-status">Vista previa de ejemplo</span></div>
+        <div class="split camera-footer"><small class="muted">El video se procesa solo en tu navegador</small><button class="button" id="camera-toggle" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#eye-off"/></svg><span>Ocultar vista</span></button></div>
+      </section>
+      <div class="column">
+        <section class="card">
+          <div class="split"><h2>Actividad de hoy</h2><span class="muted" id="elapsed">24 min de sesión</span></div>
+          <div class="metrics">
+            <div class="metric"><div class="split"><b>Buena postura</b><small>87 % del tiempo</small></div><div class="track" aria-hidden="true"><span style="--value:87%"></span></div></div>
+            <div class="metric"><div class="split"><b>Descansos</b><small id="rest-value">15 de 20 min</small></div><div class="track" aria-hidden="true"><span id="rest-bar" style="--value:75%;--bar:#7196e0"></span></div></div>
+            <div class="metric"><div class="split"><b>Ojos</b><small id="eyes-value">Bien</small></div></div>
+          </div>
+        </section>
+        <section class="card"><div class="split"><h2>Durante la sesión</h2><button class="button" id="rest">Registrar pausa</button></div>
+          <ul class="activity" aria-live="polite" id="activity"><li><svg class="icon" aria-hidden="true"><use href="#check"/></svg>Corregiste la postura <time>10:42</time></li><li><svg class="icon" aria-hidden="true"><use href="#pause"/></svg>Tomaste una pausa <time>10:31</time></li></ul>
+        </section>
+      </div>
+    </div>
+    <details class="demo"><summary>Probar situaciones del prototipo</summary><label>Situación <select id="scenario"><option value="active">Seguimiento activo</option><option value="warning">Aviso de postura</option><option value="paused">En pausa</option><option value="blocked">Cámara sin acceso</option></select></label></details>
+  </section>
+  <section id="week" class="page" hidden>
+    <header class="pagehead"><h1 tabindex="-1">Mi semana</h1><p>17 al 23 de agosto · Datos de ejemplo</p></header>
+    <div class="grid"><section class="card"><h2>Buena postura por día</h2><div id="chart-target" class="chart"></div></section>
+    <section class="card"><h2>Resumen semanal</h2><dl class="stat-grid"><div><dt>Buena postura</dt><dd>81 %</dd></div><div><dt>Correcciones</dt><dd>5</dd></div><div><dt>Pausas</dt><dd>3</dd></div></dl></section></div>
+  </section>
+  <section id="album-page" class="page" hidden>
+    <header class="pagehead"><h1 tabindex="-1">Álbum</h1><p>Elige qué carta quieres que te acompañe.</p></header>
+    <section class="card"><div class="split"><h2>Tu colección</h2><span class="muted" id="companion" role="status">Compañero: Cometa</span></div><div class="collection">
+    <button class="collect" data-card="Cometa" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#star"/></svg>Cometa</button>
+    <button class="collect" data-card="Luna" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#album"/></svg>Luna</button>
+    <button class="collect" data-card="Trébol" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#leaf"/></svg>Trébol</button></div></section>
+  </section>
+  <section id="preferences" class="page" hidden>
+    <header class="pagehead"><h1 tabindex="-1">Ajustes</h1><p>Personaliza cómo quieres usar Pantalla Sana.</p></header>
+    <div class="grid"><section class="card"><h2>Apariencia y cámara</h2>
+      <label class="setting">Tema <select id="theme"><option value="light">Claro</option><option value="dark">Oscuro</option></select></label>
+      <label class="setting">Vista previa <select id="preview-mode"><option value="on">Mostrar</option><option value="hidden">Ocultar</option></select></label>
+    </section><section class="card"><h2>Avisos</h2><p class="muted">Revisa cómo se ve un aviso antes de empezar.</p><div class="actions" style="margin-top:10px"><button class="button" id="test-alert">Probar aviso</button></div></section></div>
+  </section>
+</main>
+</div>
+<dialog id="widget-dialog" class="widget-sample" aria-labelledby="widget-title">
+  <div class="split"><h2 id="widget-title">Widget · Simulación</h2><form method="dialog"><button class="button">Cerrar</button></form></div>
+  <div class="camera" style="margin-top:10px"><svg class="icon" aria-hidden="true"><use href="#person"/></svg><span class="camera-status">Solo en tu navegador</span></div>
+  <p style="margin-top:10px" id="widget-state" role="status">Seguimiento activo</p>
+  <div class="actions"><form method="dialog"><button class="button primary">Volver a pantalla completa</button></form></div>
+</dialog>
+<script>
+const $ = selector => document.querySelector(selector);
+const all = selector => [...document.querySelectorAll(selector)];
+let state = 'active';
+let hiddenCamera = false;
+let rested = false;
+const messages = {
+  active: ['Seguimiento activo', 'Tu postura está bien. Próxima pausa en 5 minutos.', 'Pausar'],
+  warning: ['Ajusta tu postura', 'Relaja los hombros y vuelve a sentarte derecho.', 'Ya me acomodé'],
+  paused: ['Seguimiento en pausa', 'Reanuda cuando vuelvas a la pantalla.', 'Reanudar'],
+  blocked: ['Pantalla Sana no puede usar la cámara', 'Permite el acceso desde el icono junto a la dirección y vuelve a intentarlo.', 'Simular acceso permitido']
+};
+function navigate(page) {
+  all('.page').forEach(section => section.hidden = section.id !== page);
+  all('[data-page]').forEach(button => {
+    if (button.dataset.page === page) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  $('#' + page + ' h1').focus();
+}
+function render() {
+  const [title, hint, action] = messages[state];
+  $('#state-title').textContent = title;
+  $('#state-text').textContent = state === 'active' && rested ? 'Tu postura está bien. Ya registraste una pausa.' : hint;
+  $('#state-action span').textContent = action;
+  $('#state-action use').setAttribute('href', state === 'active' ? '#pause' : '#check');
+  const warning = state === 'warning' || state === 'blocked';
+  $('#state').dataset.tone = warning ? 'warn' : 'ok';
+  $('#state-icon').setAttribute('href', warning ? '#warning' : state === 'paused' ? '#pause' : '#check');
+  $('#scenario').value = state;
+  $('#widget-state').textContent = title;
+  const off = state === 'paused' || state === 'blocked';
+  const camera = $('.camera-card .camera');
+  camera.dataset.mode = off ? 'off' : hiddenCamera ? 'hidden' : 'on';
+  $('.camera-card .camera-status').textContent = off ? 'Cámara apagada' : hiddenCamera ? 'Vista oculta · seguimiento activo' : 'Vista previa de ejemplo';
+  $('.camera-card .camera use').setAttribute('href', off || hiddenCamera ? '#eye-off' : '#person');
+  $('#camera-toggle span').textContent = hiddenCamera ? 'Mostrar vista' : 'Ocultar vista';
+  $('#camera-toggle').setAttribute('aria-pressed', hiddenCamera);
+  $('#camera-toggle').disabled = off;
+  $('#preview-mode').value = hiddenCamera ? 'hidden' : 'on';
+  $('#eyes-value').textContent = off ? 'Sin lectura en vivo' : 'Bien';
+  $('#rest-value').textContent = rested ? 'Pausa registrada' : '15 de 20 min';
+  $('#rest-bar').style.setProperty('--value', rested ? '0%' : '75%');
+}
+function log(text) {
+  const item = document.createElement('li');
+  item.textContent = text;
+  const time = document.createElement('time');
+  time.textContent = 'Ahora';
+  item.append(time);
+  $('#activity').prepend(item);
+  if ($('#activity').children.length > 4) $('#activity').lastElementChild.remove();
+}
+all('[data-page]').forEach(button => button.onclick = () => navigate(button.dataset.page));
+$('#scenario').onchange = event => { state = event.target.value; render(); };
+$('#state-action').onclick = () => {
+  if (state === 'warning') log('Corregiste la postura');
+  state = state === 'active' ? 'paused' : 'active';
+  render();
+};
+$('#rest').onclick = () => {
+  if (!rested) log('Registraste una pausa');
+  rested = true;
+  render();
+};
+$('#camera-toggle').onclick = () => { hiddenCamera = !hiddenCamera; render(); };
+$('#preview-mode').onchange = event => { hiddenCamera = event.target.value === 'hidden'; render(); };
+$('#theme').onchange = event => { document.documentElement.dataset.theme = event.target.value; };
+$('#test-alert').onclick = () => { state = 'warning'; render(); navigate('home'); };
+$('#open-widget').onclick = () => $('#widget-dialog').showModal();
+all('[data-card]').forEach(button => button.onclick = () => {
+  $('#companion').textContent = 'Compañero: ' + button.dataset.card;
+  all('[data-card]').forEach(card => card.setAttribute('aria-pressed', card === button));
+});
+const daily = [72,76,80,86,91,82,80];
+$('#chart-target').innerHTML = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map((day, index) =>
+  '<div class="day"><div role="img" aria-label="' + day + ', ' + daily[index] + ' por ciento"><span style="--value:' + daily[index] + '%"></span></div>' + day + '</div>'
+).join('');
+render();
+</script>
+</body>
+</html>

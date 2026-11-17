@@ -18,6 +18,15 @@ export class Vision {
   private pose: PoseLandmarker | null = null;
   private face: FaceLandmarker | null = null;
   private timer = 0;
+  private frameWindow: Window | null = null;
+  private nextFrame: (() => void) | null = null;
+
+  setFrameWindow(host: Window) {
+    if (this.frameWindow === host) return;
+    (this.frameWindow ?? window).clearTimeout(this.timer);
+    this.frameWindow = host;
+    if (this.nextFrame) this.timer = host.setTimeout(this.nextFrame, 50);
+  }
   private token = 0;
 
   async start(onFrame: FrameCb, onReady: () => void, onFail: (e: unknown) => void) {
@@ -42,7 +51,8 @@ export class Vision {
 
   stop() {
     this.token++;
-    window.clearTimeout(this.timer);
+    (this.frameWindow ?? window).clearTimeout(this.timer);
+    this.nextFrame = null;
     this.releaseStream();
     this.lastPose = null;
     this.active = false;                                     // pausa = cámara APAGADA de verdad
@@ -80,6 +90,7 @@ export class Vision {
         cb(plm ? poseRaw(plm) : {}, ear, Date.now() / 1000);
       } catch { /* un cuadro malo no detiene el bucle */ }
     }
-    this.timer = window.setTimeout(() => this.loop(cb, tok), 50);
+    this.nextFrame = () => this.loop(cb, tok);
+    this.timer = (this.frameWindow ?? window).setTimeout(this.nextFrame, 50);
   }
 }

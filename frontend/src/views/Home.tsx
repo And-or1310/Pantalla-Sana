@@ -1,17 +1,23 @@
-import { useEffect, useState } from "react";
+import { CircleAlert, CircleCheck, Accessibility, Egg, Eye, Frown, Meh, Moon, PartyPopper, Smile, Sparkles, Star, Laptop, LockKeyhole, Maximize2, Menu, Pause, Play, Timer } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import CameraPreview from "../components/Preview";
 import type { LiveState, Preview, Settings } from "../lib/types";
+
+export type SessionEntry = { id: number; at: Date; text: string; kind: "alert" | "correction" | "pause" };
+const ACTIVITY_ICONS = { alert: CircleAlert, correction: CircleCheck, pause: Pause };
+const activityTime = new Intl.DateTimeFormat("es", { hour: "2-digit", minute: "2-digit" });
 
 const GROUP_NAMES: Record<string, string> = {
   posture: "Espalda y hombros", close: "Distancia a la pantalla", blink: "Parpadeo", sleep: "Sueño", pause: "Descansos",
 };
 const RANK = { off: 0, nodata: 1, ok: 2, acc: 3, alert: 4 } as const;
-const MOOD_EMOJI = { happy: "✨", idle: "🙂", worried: "😟", sad: "😣", sleep: "💤", cheer: "🎉" } as const;
+const MOOD_ICONS = { happy: Sparkles, idle: Smile, worried: Meh, sad: Frown, sleep: Moon, cheer: PartyPopper };
 const MOOD_TEXT = {
   happy: "¡Vas genial!", idle: "Aquí estoy", worried: "Cuida tu espalda", sad: "¡Auch! Endereza",
   sleep: "Zzz…", cheer: "¡Bien hecho!",
 } as const;
+const WIDGET_ICONS = [Accessibility, Timer, Eye];
 const PREVIEWS: Preview[] = ["Mostrar", "Solo contorno", "Ocultar"];
 
 function fmt(sec: number) {
@@ -21,64 +27,59 @@ function fmt(sec: number) {
     : `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function Ring({ score }: { score: number }) {
-  const r = 46, c = 2 * Math.PI * r;
-  const tone = score >= 70 ? "ok" : score >= 40 ? "warn" : "bad";
-  const word = score >= 80 ? "¡excelente!" : score >= 50 ? "vas bien" : "cuídate más";
-  return (
-    <div className="ring" role="img" aria-label={`Tu día: ${Math.round(score)} de 100, ${word}`}>
-      <svg viewBox="0 0 116 116">
-        <circle cx="58" cy="58" r={r} className="ring-bg" />
-        <circle cx="58" cy="58" r={r} className={`ring-fg tone-${tone}`} strokeDasharray={c}
-          strokeDashoffset={c * (1 - score / 100)} transform="rotate(-90 58 58)" />
-      </svg>
-      <div className="ring-txt"><b>{Math.round(score)}</b><span>{word}</span></div>
-    </div>
-  );
-}
-
-function VideoCard({ s, preview, onPreview }: { s: LiveState; preview: Preview; onPreview: (p: Preview) => void }) {
+function VideoCard({ s, preview, onPreview, controls }: {
+  s: LiveState; preview: Preview; onPreview: (p: Preview) => void; controls?: ReactNode;
+}) {
   const showVideo = s.camera_on && preview !== "Ocultar";
   const placeholder = s.paused ? "Cámara apagada (en pausa)" : s.cam_error ? "No encuentro la cámara"
     : preview === "Ocultar" ? "Cámara oculta · sigo cuidándote" : "Encendiendo la cámara…";
   return (
-    <section className="card video-card">
+    <section className={controls ? "widget-camera" : "card video-card"}>
+      {!controls && <h2>Tu cámara</h2>}
       <div className="video-box">
         {showVideo ? <CameraPreview mode={preview} />
-          : <div className="video-ph">{placeholder}</div>}
+          : <div className={`video-ph ${controls ? "widget-placeholder" : ""}`}>
+            {controls && <Laptop aria-hidden="true" />}
+            <span className={controls ? "sr" : undefined}>{placeholder}</span>
+          </div>}
+        {controls && <>
+          <span className="widget-camera-privacy"><LockKeyhole aria-hidden="true" /> Solo en tu navegador</span>
+          {controls}
+        </>}
         {s.calibrating && (
           <div className="cal"><p>Quédate así, mirando la pantalla</p>
             <div className="bar"><i style={{ width: `${s.cal_progress * 100}%` }} /></div></div>
         )}
       </div>
-      <p className="caption">{s.paused || !s.present ? "No te veo ahora mismo" : s.eyes_closed ? "Tus ojos están cerrados" : "Te veo bien"}</p>
+      {!controls && <><p className="caption">{s.paused || !s.present ? "No te veo ahora mismo" : s.eyes_closed ? "Tus ojos están cerrados" : "Te veo bien"}</p>
       <div className="seg" role="radiogroup" aria-label="Mi cámara en pantalla">
         {PREVIEWS.map((p) => (
           <button key={p} role="radio" aria-checked={preview === p} className={preview === p ? "on" : ""}
             onClick={() => onPreview(p)}>{p}</button>
         ))}
-      </div>
+      </div></>}
     </section>
   );
 }
 
 function Companion({ s }: { s: LiveState }) {
   const c = s.companion;
+  const MoodIcon = MOOD_ICONS[s.mood];
   return (
     <div className={`companion mood-${s.mood}`}>
       <div className={`avatar rar-${c?.rarity ?? "comun"}`} style={{ width: 84 + s.stage * 10, height: 84 + s.stage * 10 }}>
-        {c?.art_url ? <img src={c.art_url} alt={c.title} /> : <span>🥚</span>}
-        <em aria-hidden>{MOOD_EMOJI[s.mood]}</em>
+        {c?.art_url ? <img src={c.art_url} alt={c.title} /> : <Egg aria-hidden="true" />}
+        <em><MoodIcon aria-hidden="true" /></em>
       </div>
       <div>
         <b>{c ? MOOD_TEXT[s.mood] : "Corrígete y nacerá"}</b>
-        <small>Nv {s.level} {"★".repeat(s.stage)}</small>
+        <small>Nv {s.level} {Array.from({ length: s.stage }, (_, i) => <Star key={i} aria-hidden="true" />)}</small>
       </div>
     </div>
   );
 }
 
-export default function Home({ s }: { s: LiveState }) {
+export default function Home({ s, activity = [], onTogglePause, onFullPage, onNavigate }: { s: LiveState; activity?: SessionEntry[]; onTogglePause?: () => void; onFullPage?: () => void; onNavigate?: (view: "semana" | "album" | "ajustes") => void }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   useEffect(() => { api<Settings>("/settings").then(setSettings).catch(() => {}); }, []);
   const preview = settings?.preview ?? "Mostrar";
@@ -95,46 +96,134 @@ export default function Home({ s }: { s: LiveState }) {
   });
   const stateText = { off: "apagado", nodata: "sin datos", ok: "bien", acc: "atención", alert: "aviso" } as const;
 
-  return (
-    <main className="home">
-      <VideoCard s={s} preview={preview} onPreview={setPreview} />
-      <div className="col">
-        <section className={`card hero tone-${s.hero.tone}`} aria-live="polite">
+  const status = (keys: string[]) => groups
+    .filter(({ g }) => keys.includes(g))
+    .reduce<(typeof groups)[number]["top"]>((top, group) => RANK[group.top] > RANK[top] ? group.top : top, "off");
+  const eyes = status(["blink", "sleep"]);
+  const rest = status(["pause"]);
+  const posture = s.posture_pct === null ? null : Math.round(s.posture_pct);
+  const signals = [
+    { label: "Postura", value: posture === null ? "Sin datos" : `${posture}%${onFullPage ? "" : " del tiempo"}`, width: posture ?? 0, color: "mint" },
+    { label: "Descansos", value: rest === "off" ? "Desactivados" : `${Math.round(s.work_min)} min${onFullPage ? "" : " desde la pausa"}`,
+      width: rest === "off" ? 0 : 100 * s.work_min / (settings?.demo ? 0.5 : ({ Tranquilo: 30, Normal: 20, Atento: 15 }[settings?.sens ?? "Normal"] ?? 20)), color: "blue" },
+    { label: "Ojos", value: { off: "Desactivado", nodata: "Sin datos", ok: "Bien", acc: "Atención", alert: "Aviso" }[eyes],
+      width: { off: 0, nodata: 0, ok: 100, acc: 66, alert: 33 }[eyes], color: "peach" },
+  ];
+
+  const bars = <ul className="stat-list" aria-label="Postura, descansos y ojos">
+    {signals.map(({ label, value, width, color }) => (
+      <li key={label} className={`stat-${color}`}>
+        <div className="stat-label"><b>{label}</b><span>{value}</span></div>
+        <div className="stat-track" aria-hidden="true"><i style={{ width: `${Math.min(100, width)}%` }} /></div>
+      </li>
+    ))}
+  </ul>;
+
+  if (onFullPage) {
+    const nextPreview = PREVIEWS[(PREVIEWS.indexOf(preview) + 1) % PREVIEWS.length];
+    const pauseLabel = s.paused ? "Reanudar" : "Pausar";
+    return (
+      <main className="widget">
+        <VideoCard s={s} preview={preview} onPreview={setPreview} controls={
+          <>
+            <details className="widget-menu">
+              <summary aria-label="Menú"><Menu aria-hidden="true" /></summary>
+              <nav aria-label="Menú del widget">
+                <button onClick={() => onNavigate?.("semana")}>Mi semana</button>
+                <button onClick={() => onNavigate?.("album")}>Álbum</button>
+                <button onClick={() => onNavigate?.("ajustes")}>Ajustes</button>
+              </nav>
+            </details>
+            <div className="widget-controls">
+            <button type="button" aria-label={`Vista de cámara: ${preview}. Cambiar a ${nextPreview}`}
+              title={`Cámara: ${preview}`} onClick={() => setPreview(nextPreview)}><LockKeyhole aria-hidden="true" /></button>
+            <button type="button" aria-label={pauseLabel} title={pauseLabel}
+              onClick={onTogglePause}>{s.paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}</button>
+            <button type="button" aria-label="Pantalla completa" title="Pantalla completa" onClick={onFullPage}><Maximize2 aria-hidden="true" /></button>
+            </div>
+          </>
+        } />
+        <ul className="widget-rings" aria-label="Indicadores del widget">
+          {signals.map(({ label, value, width, color }, index) => {
+            const Icon = WIDGET_ICONS[index];
+            return <li key={label} className={`stat-${color}`} title={`${label}: ${value}`}>
+              <span className="sr">{label}: {value}</span>
+              <div className="widget-ring">
+              <svg viewBox="0 0 48 48" aria-hidden="true">
+                <circle cx="24" cy="24" r="21" />
+                {width > 0 && <circle className="widget-ring-fill" cx="24" cy="24" r="21" pathLength="100"
+                  strokeDasharray={`${Math.min(100, width)} 100`} transform="rotate(-90 24 24)" />}
+              </svg>
+              <span aria-hidden="true"><Icon /></span>
+              </div>
+              <small aria-hidden="true">{label}</small>
+            </li>;
+          })}
+        </ul>
+        <section className={`hero tone-${s.hero.tone}`} aria-live="polite">
           <small className="tag">{s.hero.tag}</small>
           <h1>{s.hero.title}</h1>
-          <p>{s.hero.sub}</p>
-          {s.hero.button && (
-            <button className="btn primary" onClick={calibrate}>
-              {s.hero.button === "start" ? "Empezar" : "Reajustar mi postura"}
-            </button>
-          )}
+          {s.hero.button === "start" && <button className="btn primary" onClick={calibrate}>Calibrar postura</button>}
         </section>
+      </main>
+    );
+  }
 
-        <section className="card">
-          <small className="label">Lo que estoy cuidando</small>
-          <ul className="chips">
-            {groups.map(({ g, top }) => (
-              <li key={g}><i className={`dot st-${top}`} aria-hidden /> {GROUP_NAMES[g]}
-                <span className="sr">: {stateText[top]}</span></li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="card day">
-          <Ring score={s.score} />
-          <dl>
-            <div><dt>{s.posture_pct === null ? "--" : `${Math.round(s.posture_pct)}%`}</dt><dd>del tiempo con buena postura</dd></div>
-            <div><dt>{fmt(s.session_sec)}</dt><dd>frente a la pantalla</dd></div>
-            <div><dt>{Math.round(s.work_min)} min</dt><dd>desde tu último descanso</dd></div>
-            <div><dt>Nv {s.level} · 🔥 {s.streak} d</dt><dd>tu nivel y racha</dd></div>
-          </dl>
-        </section>
-
-        <section className="card">
-          <Companion s={s} />
-          <div className="xp" title={`${s.level_xp} / ${s.level_need} XP`}><i style={{ width: `${(s.level_xp / s.level_need) * 100}%` }} /></div>
+  const StatusIcon = s.paused ? Pause : s.hero.tone === "ok" ? CircleCheck : CircleAlert;
+  return (
+    <main className="home session-home">
+      <header className="session-heading"><h1>Tu sesión</h1></header>
+      <div className="monitor">
+        <VideoCard s={s} preview={preview} onPreview={setPreview} />
+        <div className="col">
+          <section className={`session-status tone-${s.hero.tone}`} aria-label="Estado del seguimiento">
+            <div className="session-status-copy" role="status">
+              <StatusIcon aria-hidden="true" />
+              <div>
+                <h2>{s.hero.button === "start" ? "Calibra tu postura" : s.hero.title}</h2>
+                {s.hero.tone !== "ok" && <p>{s.hero.sub}</p>}
+              </div>
+            </div>
+            <div className="session-status-actions">
+              {s.hero.button && <button className="btn" onClick={calibrate}>
+                {s.hero.button === "start" ? "Calibrar postura" : "Recalibrar"}
+              </button>}
+              <button className="btn primary" onClick={onTogglePause}>{s.paused ? "Reanudar" : "Pausar"}</button>
+            </div>
+          </section>
+          <section className="card daily-stats" aria-labelledby="today">
+            <div className="session-card-heading">
+              <h2 id="today">Actividad de hoy</h2>
+              <p className="caption session-time">{fmt(s.session_sec)} de sesión</p>
+            </div>
+            {bars}
+          </section>
+          <section className="card session-companion">
+            <h2>Tu compañero</h2>
+            <Companion s={s} />
+            <p className="caption">Racha de {s.streak} días</p>
+            <div className="xp" title={`${s.level_xp} / ${s.level_need} XP`}><i style={{ width: `${(s.level_xp / s.level_need) * 100}%` }} /></div>
+          </section>
+        </div>
+        <section className="card session-activity" aria-labelledby="activity-heading">
+          <h2 id="activity-heading">Durante la sesión</h2>
+          {activity.length === 0 ? <p className="caption">Tus avisos, correcciones y pausas aparecerán aquí.</p>
+            : <ul>{activity.map(({ id, at, text, kind }) => {
+              const Icon = ACTIVITY_ICONS[kind];
+              return <li key={id}><Icon aria-hidden="true" /><span>{text}</span><time dateTime={at.toISOString()}>{activityTime.format(at)}</time></li>;
+            })}</ul>}
         </section>
       </div>
+
+      <details className="card home-details">
+        <summary>Qué se está cuidando</summary>
+        <ul className="chips">
+          {groups.map(({ g, top }) => (
+            <li key={g}><i className={`dot st-${top}`} aria-hidden /> {GROUP_NAMES[g]}
+              <span className="sr">: {stateText[top]}</span></li>
+          ))}
+        </ul>
+      </details>
     </main>
   );
 }

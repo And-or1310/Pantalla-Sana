@@ -6,6 +6,7 @@ import type { Preview } from "../lib/types";
 export default function CameraPreview({ mode }: { mode: Preview }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
+    const host = ref.current?.ownerDocument.defaultView ?? window;
     let raf = 0;
     const draw = () => {
       const cv = ref.current, v = engine.vision.video;
@@ -28,10 +29,10 @@ export default function CameraPreview({ mode }: { mode: Preview }) {
         }
         ctx.restore();
       }
-      raf = requestAnimationFrame(draw);
+      raf = host.requestAnimationFrame(draw);
     };
-    raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
+    raf = host.requestAnimationFrame(draw);
+    return () => host.cancelAnimationFrame(raf);
   }, [mode]);
   return <canvas ref={ref} role="img" aria-label="Vista previa de tu cámara (se procesa solo en tu navegador)" />;
 }

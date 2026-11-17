@@ -20,11 +20,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 :focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
-.top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 18px clamp(16px, 3vw, 28px) 8px; }
-.brand { font-size: 1.6rem; }
-.top p { color: var(--muted); font-size: .9rem; }
-.top nav { display: flex; gap: 10px; flex-wrap: wrap; }
 .btn { background: var(--surface2); border: 0; border-radius: 999px; padding: 10px 20px; font-weight: 700;
   transition: background .15s, transform .15s; }
 .btn:hover { background: var(--line); }
@@ -32,10 +27,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .btn.primary:hover { filter: brightness(1.08); transform: translateY(-1px); }
 
 .card { background: var(--surface); border-radius: 20px; padding: 20px; box-shadow: 0 1px 0 var(--line) inset; }
-.home { display: grid; grid-template-columns: minmax(300px, 560px) 1fr; gap: 18px;
-  padding: 8px clamp(16px, 3vw, 28px) 20px; align-items: start; }
 .col { display: grid; gap: 14px; }
-@media (max-width: 900px) { .home { grid-template-columns: 1fr; } }
 .loading { padding: 40px; text-align: center; color: var(--muted); }
 .label { color: var(--muted); font-weight: 700; font-size: .75rem; letter-spacing: .04em; text-transform: uppercase; }
 
@@ -62,15 +54,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--line); flex: none; transition: background .2s; }
 .dot.st-ok { background: var(--primary); } .dot.st-acc { background: var(--amber); } .dot.st-alert { background: var(--rose); }
 
-.day { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
-.ring { position: relative; width: 116px; height: 116px; flex: none; }
-.ring svg { width: 100%; height: 100%; }
-.ring circle { fill: none; stroke-width: 10; }
-.ring-bg { stroke: var(--surface2); }
-.ring-fg { stroke-linecap: round; transition: stroke-dashoffset .4s, stroke .3s; stroke: var(--primary); }
-.ring-fg.tone-warn { stroke: var(--amber); } .ring-fg.tone-bad { stroke: var(--rose); }
-.ring-txt { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
-.ring-txt b { font-size: 1.7rem; line-height: 1; } .ring-txt span { color: var(--muted); font-size: .72rem; }
 dl { margin: 0; display: grid; gap: 6px; }
 dl div { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 dt { font-size: 1.1rem; font-weight: 800; } dd { margin: 0; color: var(--muted); font-size: .88rem; }

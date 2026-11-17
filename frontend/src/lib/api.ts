@@ -11,15 +11,15 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
 }
 
 /** Estado en vivo (~10 Hz) + eventos puntuales, directamente del motor local. */
-export function useLive(onEvent: (e: EventMsg) => void) {
+export function useLive(onEvent: (e: EventMsg) => void, host: Window = window) {
   const [state, setState] = useState<LiveState | null>(() => engine.snapshot());
   const cb = useRef(onEvent);
   cb.current = onEvent;
   useEffect(() => {
     const off = engine.subscribe((e) => cb.current(e));
-    const id = window.setInterval(() => setState(engine.snapshot()), 100);
-    return () => { off(); window.clearInterval(id); };
-  }, []);
+    const id = host.setInterval(() => setState(engine.snapshot()), 100);
+    return () => { off(); host.clearInterval(id); };
+  }, [host]);
   return { state, online: true };
 }
 

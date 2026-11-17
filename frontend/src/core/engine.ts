@@ -41,6 +41,7 @@ export class Engine {
   private cheerUntil = 0;
   private vals: Vals;
   private timer = 0;
+  private frameWindow: Window | null = null;
   private lastCamTry = 0;
 
   constructor(private withCamera = true, private clock: () => number = () => Date.now() / 1000) {
@@ -62,11 +63,19 @@ export class Engine {
       if (this.settings.img_path && !getUserImageUrl()) this.updateSettings({ img_path: "" });
       if (this.settings.snd_path && !getUserSoundUrl()) this.updateSettings({ snd_path: "" });
     });
-    this.timer = window.setInterval(() => { try { this.step(); } catch (e) { console.error(e); } }, 100);
+    this.setFrameWindow(window);
     const persist = () => { this.prog.save(); this.metrics.save(); saveSettings(this.settings); };
     window.addEventListener("pagehide", persist);
     document.addEventListener("visibilitychange", () => { if (document.hidden) persist(); });
     this.syncCamera();
+  }
+
+  setFrameWindow(host: Window) {
+    if (this.frameWindow === host) return;
+    this.frameWindow?.clearInterval(this.timer);
+    this.frameWindow = host;
+    this.vision.setFrameWindow(host);
+    this.timer = host.setInterval(() => { try { this.step(); } catch (e) { console.error(e); } }, 100);
   }
 
   private syncCamera() {

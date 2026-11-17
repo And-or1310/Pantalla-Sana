@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pantalla Sana · Propuestas para Inicio</title>
+<style>
+:root{color-scheme:dark;--bg:#19152e;--card:#282244;--tile:#332b51;--line:#423863;--text:#f7efff;--muted:#c6b9dd;--pink:#ffa6cb;--mint:#94efcb;--blue:#99ccff;--peach:#ffc199;font:16px/1.5 "Segoe UI",system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--text);background:radial-gradient(ellipse at top right,#392550,transparent 64%),linear-gradient(150deg,var(--bg),#171c34)}
+button{font:inherit;cursor:pointer;color:inherit;border:0}button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+.header{border-bottom:1px solid var(--line);background:#211a35}.header-inner,main{width:min(1100px,calc(100% - 32px));margin:auto}.header-inner{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:14px 0}.brand{font-size:1.14rem;font-weight:750}.switch{display:flex;flex-wrap:wrap;gap:5px}.switch button,.action{border-radius:999px;background:var(--tile);padding:8px 13px;font-weight:650}.switch button[aria-pressed=true],.action.primary{background:var(--pink);color:#341a34}.action{font-size:.86rem}
+main{padding:42px 0 36px}.eyebrow{color:var(--mint);font-weight:750;font-size:.76rem;letter-spacing:.08em;text-transform:uppercase}.eyebrow,h1,h2,h3,p{margin:0}h1{font-size:clamp(1.95rem,5vw,3.4rem);line-height:1.1;letter-spacing:-.04em;margin:5px 0 10px}h2{font-size:1.12rem}h3{font-size:1rem}.muted{color:var(--muted)}.headline{margin-bottom:25px}.headline p:last-child{max-width:62ch}.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.92fr);gap:18px;align-items:start}.card{padding:19px;border:1px solid var(--line);background:var(--card);border-radius:24px;box-shadow:0 12px 36px #100c254a}.column{display:grid;gap:14px}.row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}.actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.camera{aspect-ratio:1;max-height:420px;position:relative;display:grid;place-items:center;background:radial-gradient(ellipse at center,#51406c,#211b3b 75%);border-radius:17px;overflow:hidden}.camera::before{content:"";position:absolute;inset:14% 25% 8%;border:2px dashed #ffabd366;border-radius:42% 42% 15% 15%}.camera svg{width:32%;height:32%;color:#e4caf8;position:relative}.shield{position:absolute;bottom:9px;left:9px;border-radius:20px;padding:4px 9px;background:#18132a;color:var(--text);font-size:.72rem}.camera-heading{margin-top:10px}.tag{font-size:.74rem;font-weight:700;color:var(--mint);background:#94efcb19;padding:4px 9px;border-radius:999px}
+.metrics{display:grid;gap:14px;list-style:none;padding:0;margin:14px 0 0}.metrics small{color:var(--muted)}.track{height:7px;background:var(--line);border-radius:20px;overflow:hidden;margin-top:5px}.track i{display:block;height:100%;border-radius:inherit;background:var(--metric);width:var(--value)}.metric-mint{--metric:var(--mint)}.metric-blue{--metric:var(--blue)}.metric-peach{--metric:var(--peach)}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}.kpi{border-radius:14px;background:var(--tile);padding:10px}.kpi strong{display:block;font-size:1.35rem}.kpi small{color:var(--muted)}.history{list-style:none;padding:0;margin:12px 0 0;display:grid;gap:10px}.history li{display:flex;align-items:baseline;gap:10px}.history time{font-size:.77rem;color:var(--muted);min-width:42px}.chart{display:grid;grid-template-columns:repeat(7,1fr);gap:7px;margin-top:12px}.day{font-size:.72rem;text-align:center;color:var(--muted)}.day div{height:82px;background:var(--tile);border-radius:8px;display:grid;align-items:end;overflow:hidden;margin-bottom:4px}.day i{display:block;width:100%;height:var(--value);background:var(--mint);opacity:.82}
+.focus{grid-template-columns:minmax(0,.86fr) minmax(0,1fr);align-items:center}.focus .column{gap:18px}.focus-tip{border-left:3px solid var(--mint);padding-left:12px}.focus-tip p{margin-top:4px}.focus .camera{max-height:none}.progress-grid{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}.companion{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center}.avatar{display:grid;place-items:center;width:63px;aspect-ratio:1;border-radius:18px;background:var(--tile);color:var(--peach)}.avatar svg{width:34px}.camera-small{max-width:280px;margin:auto}.camera-small .camera{max-height:none}.note{margin-top:20px;font-size:.84rem;color:var(--muted)}[hidden]{display:none!important}
+dialog{max-width:min(380px,calc(100vw - 32px));color:var(--text)}dialog::backdrop{background:#100b209c}
+@media(max-width:700px){main{padding-top:24px}.grid,.focus,.progress-grid{grid-template-columns:1fr}.camera{max-height:none}.card{padding:14px}}
+.app-shell{width:min(1200px,calc(100% - 32px));margin:auto;display:grid;gap:16px}
+.app-shell main{width:100%;padding-top:24px}.app-nav{display:flex;align-items:center;gap:5px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:5px}
+.app-nav button{display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 11px;border-radius:12px;background:transparent;color:var(--muted);font-size:.85rem;font-weight:650}
+.app-nav button[aria-current="page"]{background:var(--tile);color:var(--text)}.app-nav button[data-widget]{margin-left:auto;color:var(--pink)}
+.app-nav svg{width:18px;height:18px;flex:none}
+.app-shell[data-layout="session"] .app-nav{margin-top:14px}
+.app-shell[data-layout="focus"]{padding-bottom:76px}
+.app-shell[data-layout="focus"] .app-nav{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:5;box-shadow:0 8px 30px #100c25a0}
+.app-shell[data-layout="focus"] .app-nav button{flex-direction:column;gap:2px;white-space:nowrap}
+.app-shell[data-layout="progress"]{grid-template-columns:175px minmax(0,1fr);align-items:start}
+.app-shell[data-layout="progress"] .app-nav{position:sticky;top:12px;margin-top:24px;flex-direction:column;align-items:stretch}
+.app-shell[data-layout="progress"] .app-nav button{justify-content:flex-start}
+.app-shell[data-layout="progress"] .app-nav button[data-widget]{margin:6px 0 0;border-top:1px solid var(--line)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px;margin-top:12px}
+.collectible{background:var(--tile);border-radius:14px;padding:12px;text-align:center}.collectible[aria-pressed=true]{outline:2px solid var(--mint)}.collectible svg{width:40px;height:40px;color:var(--mint);margin-bottom:6px}
+.setting-row{margin-top:15px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.setting-row select{font:inherit;background:var(--tile);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:5px}
+@media(max-width:700px){.app-shell[data-layout="progress"]{display:grid;grid-template-columns:1fr}.app-shell[data-layout="progress"] .app-nav{position:static;margin-top:12px;flex-direction:row;flex-wrap:wrap}.app-shell[data-layout="progress"] .app-nav button[data-widget]{margin:0;border:0}.app-nav{flex-wrap:wrap}.app-shell[data-layout="focus"] .app-nav{width:max-content;max-width:calc(100% - 12px);justify-content:center}.app-shell[data-layout="focus"] .app-nav button{padding:6px 5px;font-size:.7rem}}
+</style>
+</head>
+<body>
+<svg hidden aria-hidden="true"><symbol id="laptop" viewBox="0 0 24 24"><path d="M3 16V5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v11M2 16h20l-1 4H3zM9 16v2h6v-2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol><symbol id="star" viewBox="0 0 24 24"><path d="m12 2 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol></svg>
+<header class="header"><div class="header-inner"><span class="brand">Pantalla Sana</span><nav class="switch" aria-label="Propuestas"><button data-view="session" aria-pressed="true">Sesión en vivo</button><button data-view="focus" aria-pressed="false">Modo enfoque</button><button data-view="progress" aria-pressed="false">Hábitos y progreso</button></nav></div></header>
+<div class="app-shell" data-layout="session">
+<nav class="app-nav" aria-label="Menú de Pantalla Sana">
+  <button data-page="home" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m3 11 9-8 9 8M5 10v10h14V10M10 20v-6h4v6"/></svg>Inicio</button>
+  <button data-page="week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18M7 16v-4m5 4V7m5 9v-6"/></svg>Mi semana</button>
+  <button data-page="album"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="m12 7 1.5 3 3.5.5-2.5 2.5.5 3.5-3-1.5-3 1.5.5-3.5L7 10.5l3.5-.5z"/></svg>Álbum</button>
+  <button data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2" fill="var(--card)"/><circle cx="15" cy="12" r="2" fill="var(--card)"/><circle cx="10" cy="18" r="2" fill="var(--card)"/></svg>Ajustes</button>
+  <button data-widget data-feedback="Se abriría el widget flotante de Pantalla Sana."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="12" y="12" width="6" height="5" rx="1"/></svg>Widget</button>
+</nav>
+<main>
+<section id="session" class="proposal">
+<header class="headline"><p class="eyebrow">Sesión en vivo</p><h1>Vas bien, sigue así</h1><p class="muted">Consulta tu postura, el tiempo de sesión y tus últimos avisos desde Inicio.</p></header>
+<div class="grid"><div class="card" data-camera></div><div class="column">
+<section class="card"><div class="row"><h2>Tu actividad de hoy</h2><span class="tag">24 min de sesión</span></div><div data-metrics></div></section>
+<section class="card"><h2>Últimos avisos</h2><ul class="history"><li><time>10:42</time><span>Corregiste tu distancia <b>+10 XP</b></span></li><li><time>10:31</time><span>Hiciste una pausa breve</span></li></ul></section>
+</div></div>
+</section>
+<section id="focus" class="proposal" hidden>
+<header class="headline"><p class="eyebrow">Modo enfoque</p><h1>Tu próxima pausa, en 5 minutos</h1><p class="muted">Deja a la vista el estado actual y la siguiente acción.</p></header>
+<div class="grid focus"><div class="card" data-camera></div><div class="column">
+<section class="card"><div class="row"><h2>Seguimiento activo</h2><span class="tag" data-status>Todo bien</span></div><div data-metrics></div><div class="actions"><button class="action primary" data-feedback="Pausa registrada · ejemplo">Tomar un descanso</button></div></section>
+<section class="focus-tip"><h3>En tu próxima pausa</h3><p class="muted">Levántate y mira un punto lejos de la pantalla.</p></section>
+</div></div>
+</section>
+<section id="progress" class="proposal" hidden>
+<header class="headline"><p class="eyebrow">Hábitos y progreso</p><h1>Así va tu semana</h1><p class="muted">Ve cómo cambia tu postura y cuánto te falta para la siguiente recompensa.</p></header>
+<div class="grid progress-grid"><div class="column">
+<section class="card"><h2>Buena postura esta semana</h2><div class="kpis"><div class="kpi"><strong>81 %</strong><small>Promedio</small></div><div class="kpi"><strong>3 días</strong><small>De racha</small></div><div class="kpi"><strong>+8 pt</strong><small>Frente a la semana anterior</small></div></div><div class="chart" data-chart></div></section>
+<section class="card companion"><span class="avatar"><svg aria-hidden="true"><use href="#star"/></svg></span><div><h2>Tu compañero · Nivel 3</h2><p class="muted">70 de 100 XP para el siguiente nivel</p><div class="track metric-peach" style="--value:70%"><i></i></div></div></section>
+</div><div class="column"><div class="card" data-camera></div></div></div>
+</section>
+<section id="week" class="subview" hidden>
+<header class="headline"><h1>Mi semana</h1><p class="muted">Revisa cuándo mantuviste una buena postura y en qué momento del día podrías hacer una pausa.</p></header>
+<div class="grid"><section class="card"><h2>Buena postura por día</h2><div class="chart" data-chart></div></section><section class="card"><h2>Resumen</h2><div class="kpis"><div class="kpi"><strong>81 %</strong><small>Buena postura</small></div><div class="kpi"><strong>5</strong><small>Correcciones</small></div><div class="kpi"><strong>3</strong><small>Descansos</small></div></div><p class="muted">El jueves por la tarde acumulaste más tiempo seguido frente a la pantalla.</p></section></div>
+</section>
+<section id="album" class="subview" hidden>
+<header class="headline"><h1>Álbum</h1><p class="muted">Consulta tu colección y elige quién te acompaña.</p></header>
+<div class="grid"><section class="card"><div class="row"><h2>Tu colección</h2><button class="action primary" data-feedback="Se abriría el sobre de recompensa.">Abrir sobre (1)</button></div><div class="cards">
+<button class="collectible" data-companion="Cometa" aria-pressed="true"><svg aria-hidden="true"><use href="#star"/></svg><br>Cometa</button>
+<button class="collectible" data-companion="Luna" aria-pressed="false"><svg aria-hidden="true"><use href="#star"/></svg><br>Luna</button>
+<button class="collectible" data-companion="Trébol" aria-pressed="false"><svg aria-hidden="true"><use href="#star"/></svg><br>Trébol</button>
+</div></section><section class="card"><h2>Compañero actual</h2><p data-active-companion role="status">Cometa</p><p class="muted">Elige una carta para cambiarlo.</p></section></div>
+</section>
+<section id="settings" class="subview" hidden>
+<header class="headline"><h1>Ajustes</h1><p class="muted">Personaliza la cámara, el widget y la manera en que recibes los avisos.</p></header>
+<div class="grid"><section class="card"><h2>Widget y privacidad</h2><label class="setting-row">Tamaño del widget <select><option>Pequeño</option><option selected>Mediano</option><option>Grande</option></select></label><label class="setting-row">Vista de cámara <select><option>Mostrar</option><option>Solo contorno</option><option>Ocultar</option></select></label></section>
+<section class="card"><h2>Avisos</h2><label class="setting-row">Sensibilidad <select><option>Tranquilo</option><option selected>Normal</option><option>Atento</option></select></label><div class="actions"><button class="action" data-feedback="Aquí se mostraría un aviso de prueba.">Probar aviso</button><button class="action" data-feedback="Se abriría la bienvenida en pantalla completa.">Volver a ver el recorrido inicial</button></div></section></div>
+</section>
+<p class="note">Propuestas con datos de ejemplo. La cámara y las estadísticas son simuladas.</p>
+</main>
+</div>
+<dialog class="card"><p role="status"></p><form method="dialog" class="actions"><button class="action primary">Cerrar</button></form></dialog>
+<template id="camera-template"><div class="camera"><svg aria-hidden="true"><use href="#laptop"/></svg><small class="shield">Solo en tu navegador</small></div><div class="row camera-heading"><h2>Tu cámara</h2><span class="tag" data-status>Todo bien</span></div><div class="actions"><button class="action" data-pause>Pausar</button><button class="action" data-feedback="Se abriría la calibración de postura.">Recalibrar</button><button class="action primary" data-feedback="Se abriría el widget flotante de Pantalla Sana.">Abrir widget</button></div></template>
+<template id="metrics-template"><ul class="metrics"><li class="metric-mint" style="--value:87%"><div class="row"><b>Postura</b><small>87 % del tiempo</small></div><div class="track"><i></i></div></li><li class="metric-blue" style="--value:75%"><div class="row"><b>Descansos</b><small>15 min desde la pausa</small></div><div class="track"><i></i></div></li><li class="metric-peach" style="--value:100%"><div class="row"><b>Ojos</b><small>Bien</small></div><div class="track"><i></i></div></li></ul></template>
+<script>
+const all = selector => document.querySelectorAll(selector);
+for (const name of ['camera', 'metrics']) {
+  all('[data-' + name + ']').forEach(node => node.append(document.getElementById(name + '-template').content.cloneNode(true)));
+}
+const days = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const values = [72, 76, 80, 86, 91, 82, 80];
+all('[data-chart]').forEach(chart => chart.innerHTML = days.map((day, i) =>
+  '<div class="day"><div role="img" aria-label="' + day + ', ' + values[i] + ' por ciento"><i style="--value:' + values[i] + '%"></i></div>' + day + '</div>'
+).join(''));
+const shell = document.querySelector('.app-shell');
+let layout = 'session';
+let page = 'home';
+function render() {
+  shell.dataset.layout = layout;
+  all('.proposal').forEach(section => section.hidden = page !== 'home' || section.id !== layout);
+  all('.subview').forEach(section => section.hidden = section.id !== page);
+  all('[data-page]').forEach(button => {
+    if (button.dataset.page === page) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+}
+all('[data-page]').forEach(button => button.addEventListener('click', () => { page = button.dataset.page; render(); }));
+all('[data-companion]').forEach(button => button.addEventListener('click', () => {
+  document.querySelector('[data-active-companion]').textContent = button.dataset.companion;
+  all('[data-companion]').forEach(card => card.setAttribute('aria-pressed', card === button));
+}));
+all('[data-view]').forEach(button => button.addEventListener('click', () => {
+  layout = button.dataset.view;
+  render();
+  all('[data-view]').forEach(item => item.setAttribute('aria-pressed', item === button));
+}));
+let paused = false;
+all('[data-pause]').forEach(button => button.addEventListener('click', () => {
+  paused = !paused;
+  all('[data-pause]').forEach(item => item.textContent = paused ? 'Reanudar' : 'Pausar');
+  all('[data-status]').forEach(item => item.textContent = paused ? 'En pausa' : 'Todo bien');
+  all('.camera svg').forEach(item => item.style.opacity = paused ? '.25' : '1');
+}));
+const dialog = document.querySelector('dialog');
+all('[data-feedback]').forEach(button => button.addEventListener('click', () => {
+  dialog.querySelector('p').textContent = button.dataset.feedback;
+  dialog.showModal();
+}));
+</script>
+</body>
+</html>
