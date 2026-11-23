@@ -1,6 +1,7 @@
-import { CircleAlert, CircleCheck, Accessibility, Egg, Eye, Frown, Meh, Moon, PartyPopper, Smile, Sparkles, Star, Laptop, LockKeyhole, Maximize2, Menu, Pause, Play, Timer } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { CircleAlert, CircleCheck, Accessibility, Egg, Eye, Frown, Meh, Moon, PartyPopper, Smile, Sparkles, Star, Laptop, LockKeyhole, Maximize2, Menu, Pause, Play, Settings2, Timer, Video, VideoOff } from "lucide-react";
+import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { ls } from "../core/store";
 import CameraPreview from "../components/Preview";
 import type { LiveState, Preview, Settings } from "../lib/types";
 
@@ -27,31 +28,28 @@ function fmt(sec: number) {
     : `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function VideoCard({ s, preview, onPreview, controls }: {
-  s: LiveState; preview: Preview; onPreview: (p: Preview) => void; controls?: ReactNode;
+function VideoCard({ s, preview, onPreview, widget = false }: {
+  s: LiveState; preview: Preview; onPreview: (p: Preview) => void; widget?: boolean;
 }) {
   const showVideo = s.camera_on && preview !== "Ocultar";
-  const placeholder = s.paused ? "Cámara apagada (en pausa)" : s.cam_error ? "No encuentro la cámara"
-    : preview === "Ocultar" ? "Cámara oculta · sigo cuidándote" : "Encendiendo la cámara…";
+  const placeholder = s.paused ? "Cámara apagada" : s.cam_error ? "No encuentro la cámara"
+    : preview === "Ocultar" ? "Vista de cámara oculta" : "Encendiendo la cámara…";
   return (
-    <section className={controls ? "widget-camera" : "card video-card"}>
-      {!controls && <h2>Tu cámara</h2>}
+    <section className={widget ? "widget-camera" : "card video-card"}>
+      {!widget && <h2>Tu cámara</h2>}
       <div className="video-box">
         {showVideo ? <CameraPreview mode={preview} />
-          : <div className={`video-ph ${controls ? "widget-placeholder" : ""}`}>
-            {controls && <Laptop aria-hidden="true" />}
-            <span className={controls ? "sr" : undefined}>{placeholder}</span>
+          : <div className={`video-ph ${widget ? "widget-placeholder" : ""}`}>
+            {widget && <Laptop aria-hidden="true" />}
+            <span className={widget ? "sr" : undefined}>{placeholder}</span>
           </div>}
-        {controls && <>
-          <span className="widget-camera-privacy"><LockKeyhole aria-hidden="true" /> Solo en tu navegador</span>
-          {controls}
-        </>}
+        {widget && <span className="widget-camera-privacy"><LockKeyhole aria-hidden="true" /> Solo en tu navegador</span>}
         {s.calibrating && (
           <div className="cal"><p>Quédate así, mirando la pantalla</p>
             <div className="bar"><i style={{ width: `${s.cal_progress * 100}%` }} /></div></div>
         )}
       </div>
-      {!controls && <><p className="caption">{s.paused || !s.present ? "No te veo ahora mismo" : s.eyes_closed ? "Tus ojos están cerrados" : "Te veo bien"}</p>
+      {!widget && <><p className="caption">{s.paused || !s.present ? "No te veo ahora mismo" : s.eyes_closed ? "Tus ojos están cerrados" : "Te veo bien"}</p>
       <div className="seg" role="radiogroup" aria-label="Mi cámara en pantalla">
         {PREVIEWS.map((p) => (
           <button key={p} role="radio" aria-checked={preview === p} className={preview === p ? "on" : ""}
@@ -79,15 +77,22 @@ function Companion({ s }: { s: LiveState }) {
   );
 }
 
-export default function Home({ s, activity = [], onTogglePause, onFullPage, onNavigate }: { s: LiveState; activity?: SessionEntry[]; onTogglePause?: () => void; onFullPage?: () => void; onNavigate?: (view: "semana" | "album" | "ajustes") => void }) {
+export default function Home({ s, activity = [], settingsRevision, onTogglePause, onConfigureCamera, onFullPage, onWidgetPreviewChange, onNavigate }: {
+  s: LiveState; activity?: SessionEntry[]; onTogglePause: () => void; onConfigureCamera: () => void;
+  settingsRevision: number;
+  onFullPage?: () => void; onWidgetPreviewChange?: (preview: Preview) => void;
+  onNavigate?: (view: "semana" | "album" | "ajustes") => void;
+}) {
   const [settings, setSettings] = useState<Settings | null>(null);
-  useEffect(() => { api<Settings>("/settings").then(setSettings).catch(() => {}); }, []);
-  const preview = settings?.preview ?? "Mostrar";
+  const [widgetPreview, setWidgetPreview] = useState(() => ls.get<Preview | null>("ps.widgetPreview", null));
+  useEffect(() => { api<Settings>("/settings").then(setSettings).catch(() => {}); }, [settingsRevision]);
+  const preview = (onFullPage ? widgetPreview : null) ?? settings?.preview ?? "Mostrar";
   const setPreview = (p: Preview) => {
     setSettings((x) => (x ? { ...x, preview: p } : x));
-    api<Settings>("/settings", "PUT", { preview: p }).then(setSettings).catch(() => {});
+    api<Settings>("/settings", "PUT", { preview: p }).then(setSettings).catch(() => setSettings(settings));
   };
-  const calibrate = () => api("/calibrate", "POST").catch(() => {});
+  const needsCameraSetup = !s.calibrated || s.cam_error;
+  const pauseLabel = s.paused ? "Reanudar" : "Pausar";
 
   const groups = Object.keys(GROUP_NAMES).map((g) => {
     const st = s.rules.filter((r) => r.group === g).map((r) => r.state);
@@ -120,12 +125,13 @@ export default function Home({ s, activity = [], onTogglePause, onFullPage, onNa
   </ul>;
 
   if (onFullPage) {
+    const compact = preview === "Ocultar";
     const nextPreview = PREVIEWS[(PREVIEWS.indexOf(preview) + 1) % PREVIEWS.length];
-    const pauseLabel = s.paused ? "Reanudar" : "Pausar";
     return (
-      <main className="widget">
-        <VideoCard s={s} preview={preview} onPreview={setPreview} controls={
-          <>
+      <main className={compact ? "widget widget-compact" : "widget"}>
+        <div className="widget-media">
+          {!compact && <VideoCard s={s} preview={preview} onPreview={setPreview} widget />}
+          <div className="widget-toolbar">
             <details className="widget-menu">
               <summary aria-label="Menú"><Menu aria-hidden="true" /></summary>
               <nav aria-label="Menú del widget">
@@ -135,14 +141,20 @@ export default function Home({ s, activity = [], onTogglePause, onFullPage, onNa
               </nav>
             </details>
             <div className="widget-controls">
-            <button type="button" aria-label={`Vista de cámara: ${preview}. Cambiar a ${nextPreview}`}
-              title={`Cámara: ${preview}`} onClick={() => setPreview(nextPreview)}><LockKeyhole aria-hidden="true" /></button>
-            <button type="button" aria-label={pauseLabel} title={pauseLabel}
-              onClick={onTogglePause}>{s.paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}</button>
-            <button type="button" aria-label="Pantalla completa" title="Pantalla completa" onClick={onFullPage}><Maximize2 aria-hidden="true" /></button>
+              <button type="button" aria-label={`Cambiar vista de cámara a ${nextPreview}`}
+                title={`Vista de cámara · ${preview}`} onClick={() => {
+                  if (compact || nextPreview === "Ocultar") onWidgetPreviewChange?.(nextPreview);
+                  setWidgetPreview(nextPreview);
+                  ls.set("ps.widgetPreview", nextPreview);
+                }}>{compact ? <VideoOff aria-hidden="true" /> : <Video aria-hidden="true" />}</button>
+              {needsCameraSetup ? compact && <button type="button" aria-label="Configurar cámara" title="Configurar cámara"
+                onClick={onConfigureCamera}><Settings2 aria-hidden="true" /></button>
+                : <button type="button" aria-label={pauseLabel} title={pauseLabel}
+                  onClick={onTogglePause}>{s.paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}</button>}
+              <button type="button" aria-label="Pantalla completa" title="Pantalla completa" onClick={onFullPage}><Maximize2 aria-hidden="true" /></button>
             </div>
-          </>
-        } />
+          </div>
+        </div>
         <ul className="widget-rings" aria-label="Indicadores del widget">
           {signals.map(({ label, value, width, color }, index) => {
             const Icon = WIDGET_ICONS[index];
@@ -157,13 +169,14 @@ export default function Home({ s, activity = [], onTogglePause, onFullPage, onNa
               <span aria-hidden="true"><Icon /></span>
               </div>
               <small aria-hidden="true">{label}</small>
+              {compact && <b aria-hidden="true">{value}</b>}
             </li>;
           })}
         </ul>
         <section className={`hero tone-${s.hero.tone}`} aria-live="polite">
-          <small className="tag">{s.hero.tag}</small>
-          <h1>{s.hero.title}</h1>
-          {s.hero.button === "start" && <button className="btn primary" onClick={calibrate}>Calibrar postura</button>}
+          {!compact && <small className="tag">{s.hero.tag}</small>}
+          <h1>{needsCameraSetup && !s.cam_error ? "Configura tu cámara" : s.hero.title}</h1>
+          {needsCameraSetup && !compact && <button className="btn primary" onClick={onConfigureCamera}>Configurar cámara</button>}
         </section>
       </main>
     );
@@ -180,15 +193,13 @@ export default function Home({ s, activity = [], onTogglePause, onFullPage, onNa
             <div className="session-status-copy" role="status">
               <StatusIcon aria-hidden="true" />
               <div>
-                <h2>{s.hero.button === "start" ? "Calibra tu postura" : s.hero.title}</h2>
+                <h2>{needsCameraSetup && !s.cam_error ? "Configura tu cámara" : s.hero.title}</h2>
                 {s.hero.tone !== "ok" && <p>{s.hero.sub}</p>}
               </div>
             </div>
             <div className="session-status-actions">
-              {s.hero.button && <button className="btn" onClick={calibrate}>
-                {s.hero.button === "start" ? "Calibrar postura" : "Recalibrar"}
-              </button>}
-              <button className="btn primary" onClick={onTogglePause}>{s.paused ? "Reanudar" : "Pausar"}</button>
+              <button className={needsCameraSetup ? "btn primary" : "btn"} onClick={onConfigureCamera}>Configurar cámara</button>
+              {!needsCameraSetup && <button className="btn primary" onClick={onTogglePause}>{pauseLabel}</button>}
             </div>
           </section>
           <section className="card daily-stats" aria-labelledby="today">

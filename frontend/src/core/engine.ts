@@ -4,9 +4,10 @@ import {
   CAL_END, CAL_START, KEYS, LEVEL_NAMES, POSTURE_KEYS, RESCUE_WINDOW, RULES, SENS_TIME, Tracker, holdStep, newHold, planAlert,
   type Baseline, type Hold, type Key, type Raw, type Vals,
 } from "./core";
-import { getUserImageUrl, getUserSoundUrl, loadUserMedia, saveUserFile } from "./media";
+import { getUserImageUrl, getUserSoundUrl, saveUserFile } from "./media";
 import { ART_PACKS, getContent, notifyPhone, type Src } from "./sources";
-import { Metrics, Progress, RARITY, levelInfo, loadSettings, mergeSettings, saveSettings, stageOf } from "./store";
+import { Metrics, Progress, RARITY, levelInfo, loadSettings, ls, mergeSettings, saveSettings, stageOf } from "./store";
+import { readCalibration } from "./calibration";
 import { Vision } from "./vision";
 
 type Hero = LiveState["hero"];
@@ -14,6 +15,12 @@ type Status = ["off" | "nodata" | "ok" | "acc" | "alert", number];
 type Pend = { t: number; c: Src | null };
 const IMG_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/bmp"];
 const SND_TYPES = ["audio/wav", "audio/x-wav", "audio/mpeg", "audio/ogg"];
+const PRESENCE_STABLE = 0.5;
+const FRAME_TIMEOUT = 0.75;
+export function validateUserFile(kind: "image" | "sound", file: Blob) {
+  if (!(kind === "image" ? IMG_TYPES : SND_TYPES).includes(file.type)) throw new Error("Ese tipo de archivo no se puede usar");
+  if (!file.size || file.size > 8_000_000) throw new Error("Selecciona un archivo de hasta 8 MB");
+}
 
 const toContent = (c: Src | null): Content | null => c && ({
   pack: c.pack, id: String(c.id), name: c.name ?? "", title: c.title ?? "", text: c.text ?? "", art_url: c.art_url ?? null,
@@ -32,7 +39,8 @@ export class Engine {
   private tr: Tracker;
   private baseline: Baseline | null = null;
   private cal: { start: number; s: Record<Key, number[]>; ear: number[] } | null = null;
-  private tStart: number; private lastEval: number;
+  private sessionTime = 0;
+  private lastEval: number;
   private score = 100; private goodT = 0; private totalT = 0;
   private rt: Hold[] = RULES.map(newHold);
   private status: Status[] = RULES.map(() => ["off", 0] as Status);
@@ -42,12 +50,23 @@ export class Engine {
   private vals: Vals;
   private timer = 0;
   private frameWindow: Window | null = null;
-  private lastCamTry = 0;
+  private deviceId = "";
+  private visibleSince: number | null = null;
+  private visibleAt = -Infinity;
+  private calibrationFailed = false;
+  private canMonitor = () => true;
+  private localSettings = true;
+  private checkpoint = () => {};
+  private packWork: Promise<void> | null = null;
+  private calibrationScope = "guest";
+  private missingSince: number | null = null;
+  private presenceWarning = false;
+  private trackingStarted = false;
 
   constructor(private withCamera = true, private clock: () => number = () => Date.now() / 1000) {
     const now = clock();
     this.tr = new Tracker(now);
-    this.tStart = this.lastEval = now;
+    this.lastEval = now;
     this.vals = this.tr.values(now);
   }
 
@@ -59,12 +78,8 @@ export class Engine {
   // ------------------------------------------------------------ ciclo de vida
   start() {
     if (this.timer) return;
-    void loadUserMedia().then(() => {
-      if (this.settings.img_path && !getUserImageUrl()) this.updateSettings({ img_path: "" });
-      if (this.settings.snd_path && !getUserSoundUrl()) this.updateSettings({ snd_path: "" });
-    });
     this.setFrameWindow(window);
-    const persist = () => { this.prog.save(); this.metrics.save(); saveSettings(this.settings); };
+    const persist = () => { this.prog.save(); this.metrics.save(); if (this.localSettings) saveSettings(this.settings); };
     window.addEventListener("pagehide", persist);
     document.addEventListener("visibilitychange", () => { if (document.hidden) persist(); });
     this.syncCamera();
@@ -82,29 +97,91 @@ export class Engine {
     if (!this.withCamera) return;
     if (this.paused) { this.vision.stop(); this.cameraOn = false; return; }
     if (this.vision.active) return;
-    this.lastCamTry = this.clock();
     void this.vision.start(
+      this.deviceId,
       (raw, ear, now) => this.ingest(raw, ear, now),
-      () => { this.camError = false; this.cameraOn = true; },
-      () => { this.camError = true; this.cameraOn = false; });
+      () => {
+        this.camError = false;
+        this.cameraOn = true;
+        const identity = this.vision.calibrationIdentity();
+        const saved = identity ? readCalibration(ls.get(this.calibrationKey(identity), null), this.clock()) : null;
+        if (saved) {
+          this.baseline = saved.baseline;
+          this.tr.earHist = saved.ear.map((ear) => [this.clock(), ear]);
+          this.toast("Recuperamos tu calibración reciente. Puedes recalibrar si cambiaste de posición.", "muted");
+        }
+      },
+      () => { this.stopSampling(this.clock()); this.camError = true; this.cameraOn = false; });
+  }
+
+  setMonitoringAccess(canMonitor: () => boolean) { this.canMonitor = canMonitor; }
+  setCalibrationScope(scope: string) {
+    this.calibrationScope = scope;
+    this.baseline = null;
+    this.trackingStarted = false;
+  }
+  private calibrationKey(identity: string) { return `ps.calibration.${this.calibrationScope}.${identity}`; }
+  setCheckpoint(checkpoint: () => void) { this.checkpoint = checkpoint; }
+
+  setSettingsScope(settings: Settings, local: boolean) {
+    this.settings = settings;
+    this.localSettings = local;
+  }
+
+  switchMetrics(metrics: Metrics, resetCalibration = false) {
+    this.metrics.save();
+    this.metrics = metrics;
+    this.sessionTime = this.goodT = this.totalT = 0;
+    this.score = 100;
+    if (resetCalibration) this.baseline = null;
+  }
+
+  private hasPresence(now: number) {
+    return this.visibleSince !== null && this.visibleAt - this.visibleSince >= PRESENCE_STABLE
+      && now - this.visibleAt <= FRAME_TIMEOUT;
+  }
+
+  private stopSampling(now: number) {
+    this.visibleSince = null;
+    this.visibleAt = -Infinity;
+    this.tr = new Tracker(now);
+    this.pending.clear();
+    this.lastFired = [-Infinity, 0];
+  }
+
+  configureCamera(deviceId = this.deviceId) {
+    if (!this.canMonitor()) return;
+    this.setPaused(true);
+    this.deviceId = deviceId;
+    this.baseline = null;
+    this.calibrationFailed = false;
+    this.setPaused(false);
   }
 
   // ------------------------------------------------------------ ajustes
   updateSettings(patch: Partial<Settings>) {
     this.settings = mergeSettings(this.settings, patch);
-    saveSettings(this.settings);
+    if (this.localSettings) saveSettings(this.settings);
     return this.settings;
   }
 
   async saveUserFile(kind: "image" | "sound", file: File) {
-    if (!(kind === "image" ? IMG_TYPES : SND_TYPES).includes(file.type)) throw new Error("Ese tipo de archivo no se puede usar");
-    if (!file.size || file.size > 8_000_000) throw new Error("El archivo pesa más de 8 MB");
+    validateUserFile(kind, file);
     await saveUserFile(kind, file);
+    if (!this.localSettings) return this.settings;
     return this.updateSettings(kind === "image" ? { img_path: "local" } : { snd_path: "local" });
   }
 
   // ------------------------------------------------------------ entrada de datos
   ingest(raw: Raw, earV: number | null, now = this.clock()) {
+    if (this.paused) return;
+    if (!Number.isFinite(raw.hd) || !Number.isFinite(raw.tl) || !Number.isFinite(earV)) {
+      if (this.visibleSince !== null) this.stopSampling(now);
+      return;
+    }
+    if (now - this.visibleAt > FRAME_TIMEOUT) this.stopSampling(now);
+    this.visibleSince ??= now;
+    this.visibleAt = now;
     this.tr.feed(raw, earV, now);
     if (this.cal && now - this.cal.start >= CAL_START && now - this.cal.start <= CAL_END) {
       for (const k of KEYS) { const x = raw[k]; if (x !== null && x !== undefined) this.cal.s[k].push(x); }
@@ -114,25 +191,40 @@ export class Engine {
 
   // ------------------------------------------------------------ comandos
   calibrate(now = this.clock()) {
-    if (this.paused) this.setPaused(false);
+    if (this.cal || this.paused || (this.withCamera && (!this.cameraOn || !this.hasPresence(now)))) return false;
+    this.calibrationFailed = false;
+    this.baseline = null;
     this.cal = { start: now, s: { hd: [], cl: [], tl: [], roll: [] }, ear: [] };
+    return true;
   }
 
   private finishCal(now: number) {
     const { s, ear } = this.cal!;
     this.cal = null;
     const med = (a: number[]) => { const b = [...a].sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
-    if (s.hd.length >= 15 && s.tl.length >= 15) {
+    if (this.hasPresence(now) && s.hd.length >= 15 && s.tl.length >= 15 && ear.length >= 15) {
       this.baseline = Object.fromEntries(KEYS.map((k) => [k, s[k].length >= 15 ? med(s[k]) : null])) as Baseline;
       if (ear.length >= 15) this.tr.earHist = ear.map((e) => [now, e] as [number, number]);
+      this.tr.workStart = now;
+      this.lastEval = now;
       for (const st of this.rt) st.since = null;
+      const identity = this.vision.calibrationIdentity();
+      if (identity) ls.set(this.calibrationKey(identity), { at: now, baseline: this.baseline, ear });
       this.toast("¡Listo! Ya te estoy cuidando", "ok");
-    } else this.toast("No te veo bien. Que se vean tus hombros y tu cara, e inténtalo otra vez", "warn");
+    } else this.calibrationFailed = true;
   }
 
   setPaused(v: boolean) {
+    if (!v && !this.canMonitor()) return;
     this.paused = v;
-    if (v) this.cal = null;
+    this.camError = false;
+    if (v) {
+      this.cal = null;
+      this.missingSince = null;
+      this.presenceWarning = false;
+      this.trackingStarted = false;
+      this.stopSampling(this.clock());
+    }
     this.syncCamera();
   }
   testAlert() { this.fire(0, true); }
@@ -141,11 +233,13 @@ export class Engine {
 
   /** Gasta un sobre. La descarga es asíncrona; el resultado llega como evento pack_opened. */
   openPack() {
+    if (this.packWork) return false;
     if (this.prog.d.packs <= 0) { this.toast("Aún no tienes sobres: sube de nivel o completa tu racha del día 🎁", "warn"); return false; }
-    void this.packWorker();
+    this.packWork = this.packWorker(this.prog).finally(() => { this.packWork = null; });
     return true;
   }
-  private async packWorker() {
+  waitForPack() { return this.packWork ?? Promise.resolve(); }
+  private async packWorker(progress: Progress) {
     const net = this.settings.net;
     const out: Src[] = [], seen = new Set<string>();
     for (let tries = 0; out.length < 3 && tries < 10; tries++) {
@@ -153,7 +247,11 @@ export class Engine {
       if (net) this.netRequests++;
       if (c?.art_url) { const k = `${c.pack}:${c.id}`; if (!seen.has(k)) { seen.add(k); out.push(c); } }
     }
-    const results = this.prog.openPack(out);
+    if (this.prog !== progress || !this.canMonitor()) {
+      this.emit({ type: "pack_opened", cards: [], ok: false });
+      return;
+    }
+    const results = progress.openPack(out);
     if (!results.length) {
       this.toast("No pude conseguir imágenes (¿sin internet?). Tu sobre no se gastó.", "warn");
       this.emit({ type: "pack_opened", cards: [], ok: false });
@@ -165,7 +263,9 @@ export class Engine {
 
   album(): AlbumItem[] {
     const comp = this.prog.d.companion;
-    return Object.entries(this.prog.d.album).slice(-200).reverse()
+    return Object.entries(this.prog.d.album)
+      .sort(([a, first], [b, second]) => second.got.localeCompare(first.got) || a.localeCompare(b))
+      .slice(0, 200)
       .map(([key, v]) => ({ key, pack: v.pack, title: v.title, art_url: v.art, rarity: v.rarity, got: v.got, is_companion: key === comp }));
   }
 
@@ -184,7 +284,6 @@ export class Engine {
       const content = plan.card === "user" ? toContent({ pack: "Mi imagen", id: "user", title: "Pantalla Sana", art_url: getUserImageUrl() } as Src) : null;
       this.emit({ type: "alert", id: aid, rule: r.key, msg, card: plan.card, accent, content, test });
     }
-    if (plan.fetch) void this.contentWorker(i, plan, msg, aid, accent, test);
     if (!test) {
       this.metrics.alert(now, r.key);
       this.score = Math.max(0, this.score - 4);
@@ -192,19 +291,22 @@ export class Engine {
       const topic = s.ntfy.trim();
       if (topic) { this.netRequests++; void notifyPhone(topic, msg); }
     }
+    if (plan.fetch) void this.contentWorker(i, plan, msg, aid, accent, test);
   }
   private async contentWorker(idx: number, plan: ReturnType<typeof planAlert>, msg: string, aid: string, accent: "amber" | "rose", test: boolean) {
+    const pending = this.pending.get(idx);
     const s = this.settings;
     const sleep = RULES[idx].key === "sleep";
     const c = plan.card === "pack" ? await getContent(s.img_mode, s.net, sleep) : null;
     if (s.net) this.netRequests++;
     let cry = c?.cry ?? null;
     if (plan.sound === "cry" && !cry) cry = (await getContent("Pokémon", s.net, sleep)).cry ?? null;
+    // Una descarga puede terminar después de pausar o de salir de cuadro.
+    if (!test && (!this.hasPresence(this.clock()) || this.pending.get(idx) !== pending)) return;
     if (plan.card === "pack")
       this.emit({ type: "alert", id: aid, rule: RULES[idx].key, msg, card: "pack", accent, content: toContent(c), test });
     if (plan.sound === "cry") this.emit(cry ? { type: "sound", kind: "cry", url: cry, repeat: 1 } : { type: "sound", kind: "beep", repeat: 1 });
-    const p = this.pending.get(idx);
-    if (!test && p) p.c = c;
+    if (!test && pending) pending.c = c;
   }
 
   private onRescue(i: number, c: Src | null, now: number) {
@@ -219,20 +321,43 @@ export class Engine {
 
   // ------------------------------------------------------------ lógica por ciclo
   step(now = this.clock()) {
+    if (!this.paused && !this.canMonitor()) this.setPaused(true);
+    if (this.visibleSince !== null && now - this.visibleAt > FRAME_TIMEOUT) this.stopSampling(now);
+    if (this.withCamera && this.cal && !this.hasPresence(now)) {
+      this.cal = null;
+      this.calibrationFailed = true;
+    }
     if (this.cal && now - this.cal.start > CAL_END) this.finishCal(now);
-    if (this.camError && this.withCamera && !this.paused && now - this.lastCamTry > 5) this.syncCamera();
     this.evaluate(now);
+    this.checkPresence(now);
+    this.checkpoint();
     while (this.prog.news.length) this.toast(this.prog.news.shift()!, "ok");
+  }
+
+  private checkPresence(now: number) {
+    if (this.paused || !this.baseline || this.cal || this.camError) return;
+    if (this.hasPresence(now)) {
+      this.trackingStarted = true;
+      this.missingSince = null;
+      this.presenceWarning = false;
+      return;
+    }
+    if (!this.trackingStarted) return;
+    this.missingSince ??= now;
+    if (this.presenceWarning || now - this.missingSince < 3) return;
+    this.presenceWarning = true;
+    this.toast("No te vemos. Muestra tu cara y tus hombros para reanudar el seguimiento.", "warn");
+    if (this.settings.snd_mode !== "Silencio") this.emit({ type: "sound", kind: "beep", repeat: 1 });
   }
 
   private evaluate(now: number) {
     const s = this.settings;
-    const dt = Math.min(0.5, now - this.lastEval);
+    const dt = Math.max(0, Math.min(0.5, now - this.lastEval));
     this.lastEval = now;
     const demo = s.demo;
     const v = this.tr.values(now, demo);
     this.vals = v;
-    const live = !this.paused && this.cal === null;
+    const live = !this.paused && this.baseline && this.cal === null && this.hasPresence(now);
     const L = LEVEL_NAMES.indexOf(s.sens);
     let postureBad = false, postureData = false;
 
@@ -257,8 +382,8 @@ export class Engine {
     });
 
     if (live) {
-      const seen = now - this.tr.faceSeen <= 1.5 || Object.values(this.tr.seen).some((t) => now - (t as number) <= 1.5);
-      this.metrics.record(now, dt, seen, this.baseline && postureData ? postureBad : null, v.bpm);
+      this.sessionTime += dt;
+      this.metrics.record(now, dt, true, postureData ? postureBad : null, v.bpm);
       this.score = Math.min(100, this.score + dt * 0.1);
       if (this.baseline && postureData) {
         this.totalT += dt;
@@ -287,6 +412,7 @@ export class Engine {
     if (this.cal) return { tag: "UN MOMENTO", title: "Quédate así un momento…", tone: "warn", sub: "Mira la pantalla, ya casi termino." };
     if (!this.baseline) return { tag: "BIENVENIDO", title: "¡Hola! Vamos a empezar", tone: "ok", button: "start",
       sub: "Siéntate cómodo y derecho frente a la cámara. Aprenderé cómo te ves cuando estás bien. Tarda 3 segundos." };
+    if (!this.hasPresence(now)) return { tag: "TE BUSCO", title: "No te vemos", tone: "muted", sub: "Muestra tu cara y tus hombros para reanudar el seguimiento." };
     if (now - this.lastFired[0] < 8) {
       const r = RULES[this.lastFired[1]];
       return { tag: "AVISO", title: r.msg, sub: "Un pequeño ajuste y seguimos.", tone: r.key === "sleep" ? "bad" : "warn" };
@@ -294,7 +420,6 @@ export class Engine {
     let best = -1, bi = -1;
     this.status.forEach(([k, p], i) => { if (k === "acc" && p > best) { best = p; bi = i; } });
     if (bi >= 0) return { tag: "ATENTO", title: RULES[bi].hint, tone: "warn", sub: "Si lo corriges ahora, no tengo que molestarte." };
-    if (now - this.tr.lastPresent > 4) return { tag: "TE BUSCO", title: "No te veo", tone: "muted", sub: "Acércate un poco a la cámara para que pueda cuidarte." };
     return { tag: "TODO BIEN", title: "Vas muy bien", tone: "ok", button: "recalibrate", sub: "Tu postura y tus ojos están bien. Yo me encargo de avisarte." };
   }
 
@@ -304,12 +429,12 @@ export class Engine {
     return {
       type: "state", t: now, paused: this.paused, cam_error: this.camError, calibrating: this.cal !== null,
       cal_progress: this.cal ? Math.min(1, (now - this.cal.start) / CAL_END) : 0,
-      calibrated: !!this.baseline, present: now - this.tr.faceSeen <= 1.5, eyes_closed: !!this.tr.closed,
+      calibrated: !!this.baseline, calibration_failed: this.calibrationFailed, present: this.hasPresence(now), eyes_closed: !!this.tr.closed,
       mood: this.mood(now), hero: this.hero(now),
       rules: RULES.map((r, i) => ({ key: r.key, name: r.name, group: r.group, state: this.status[i][0], progress: this.status[i][1] })),
       score: Math.round(this.score * 10) / 10,
       posture_pct: this.totalT > 5 ? Math.round((this.goodT / this.totalT) * 1000) / 10 : null,
-      session_sec: now - this.tStart, work_min: Math.round(this.vals.work_min * 10) / 10,
+      session_sec: this.sessionTime, work_min: this.hasPresence(now) ? Math.round(this.vals.work_min * 10) / 10 : 0,
       level: lv, level_xp: cur, level_need: need, streak: this.prog.streakNow(), packs: this.prog.d.packs, stage: stageOf(lv),
       companion: comp ? { title: comp.title, art_url: comp.art, rarity: comp.rarity } : null,
       net_requests_today: this.netRequests, camera_on: this.withCamera && this.cameraOn && !this.paused && !this.camError,

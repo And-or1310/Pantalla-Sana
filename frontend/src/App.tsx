@@ -1,17 +1,18 @@
-import { ChartColumn, Gift, Hand, House, LockKeyhole, Maximize2, Minimize2, PanelTop, Settings, Sparkles } from "lucide-react";
+import { ChartColumn, Gift, Hand, House, LockKeyhole, LogOut, Maximize2, Minimize2, PanelTop, Settings, Sparkles, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useState } from "react";
-import CameraPreview from "./components/Preview";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import CameraSetup from "./components/CameraSetup";
 import { engine } from "./core/engine";
+import { account } from "./core/account";
 import { ls } from "./core/store";
-import { api, Unauthorized, useLive } from "./lib/api";
+import { api, useLive } from "./lib/api";
 import { beep, playUrl, speak } from "./lib/sound";
 import Home, { type SessionEntry } from "./views/Home";
 import Album from "./views/Album";
 import Week from "./views/Week";
 import Packs from "./components/Packs";
 import SettingsView from "./views/SettingsView";
-import type { Content, EventMsg, PackOpened } from "./lib/types";
+import type { Content, EventMsg, PackOpened, Preview } from "./lib/types";
 
 type Tone = "ok" | "warn" | "bad" | "muted";
 type Item =
@@ -29,6 +30,10 @@ type Size = typeof SIZES[number][0];
 type FloatingApi = { requestWindow(options: { width: number; height: number }): Promise<Window> };
 const floatingApi = (window as Window & { documentPictureInPicture?: FloatingApi }).documentPictureInPicture;
 const floatingWidths = { small: 280, medium: 340, large: 440 };
+function floatingSize(size: Size, preview: Preview) {
+  const width = floatingWidths[size];
+  return { width, height: preview === "Ocultar" ? 210 : Math.round((width - 8) * .75) + 150 };
+}
 
 const ICONS = { inicio: House, semana: ChartColumn, album: Gift, ajustes: Settings };
 let nextId = 1;
@@ -64,17 +69,17 @@ function AlertCard({ it, onClose, fullscreen = false }: { it: Extract<Item, { ki
 }
 
 export default function App() {
-  const [theme, setTheme] = useState<Theme>(() => ls.get("ps.theme", "auto"));
-  const [size, setSize] = useState<Size>(() => ls.get("ps.widgetSize", "medium"));
+  const auth = useSyncExternalStore(account.subscribe, account.snapshot);
+  const { theme, widgetSize: size } = auth.appearance;
   const [floating, setFloating] = useState<Window | null>(null);
   const [openingWidget, setOpeningWidget] = useState(false);
   const [intro, setIntro] = useState(() => ls.get("ps.introDone", false) ? "done" : "welcome");
-  useEffect(() => { document.documentElement.dataset.theme = theme; ls.set("ps.theme", theme); }, [theme]);
+  const [deviceId, setDeviceId] = useState(() => ls.get("ps.cameraDevice", ""));
+  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
   useEffect(() => { if (floating) floating.document.documentElement.dataset.theme = theme; }, [floating, theme]);
-  useEffect(() => { ls.set("ps.widgetSize", size); }, [size]);
   const [activity, setActivity] = useState<SessionEntry[]>([]);
   const [items, setItems] = useState<Item[]>([]);
-  const [auth, setAuth] = useState<"?" | "ok" | "no">("?");
+  const [accountBusy, setAccountBusy] = useState(false);
   const [view, setView] = useState<View>(viewFromHash);
   const [pack, setPack] = useState<"closed" | "waiting" | PackOpened>("closed");
   const [albumVersion, setAlbumVersion] = useState(0);
@@ -113,7 +118,13 @@ export default function App() {
         push({ kind: "alert", msg: e.msg, accent: e.accent, card: e.card, content: e.content ?? null }, 9000);
         if (document.hidden && Notification.permission === "granted") new Notification("Pantalla Sana", { body: e.msg });
         break;
-      case "toast": push({ kind: "toast", msg: e.msg, tone: e.tone ?? "ok" }, 6000); break;
+      case "toast":
+        push({ kind: "toast", msg: e.msg, tone: e.tone ?? "ok" }, 6000);
+        if (e.tone === "warn" && e.msg.startsWith("No te vemos.") && document.hidden
+          && typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification("Pantalla Sana", { body: e.msg });
+        }
+        break;
       case "rescue":
         recordActivity(`Corregiste a tiempo · +${e.xp} XP`, "correction");
         if (e.new_card) setAlbumVersion((v) => v + 1);
@@ -126,17 +137,15 @@ export default function App() {
 
   const { state, online } = useLive(onEvent, floating ?? window);
   useEffect(() => {
-    api("/state").then(() => setAuth("ok")).catch((e) => setAuth(e instanceof Unauthorized ? "no" : "ok"));
-  }, []);
-
-  if (auth === "no") {
-    return (
-      <div className="gate card">
-        <h1><LockKeyhole aria-hidden="true" /> Falta abrir tu sesión</h1>
-        <p>Recarga la página para continuar.</p>
-      </div>
-    );
-  }
+    setActivity([]);
+    setItems([]);
+    setIntro((step) => step === "configure" ? "done" : step === "camera" ? "welcome" : step);
+  }, [auth.user?.id]);
+  useEffect(() => {
+    if (auth.message && engine.paused) {
+      setIntro((step) => step === "configure" ? "done" : step === "camera" ? "welcome" : step);
+    }
+  }, [auth.message]);
 
   const openPack = () => {
     api<{ started: boolean }>("/packs/open", "POST").then((r) => { if (r.started) setPack("waiting"); }).catch(() => {});
@@ -151,8 +160,8 @@ export default function App() {
     setOpeningWidget(true);
     let popup: Window | undefined;
     try {
-      const width = floatingWidths[size];
-      popup = await floatingApi.requestWindow({ width, height: Math.round((width - 8) * .75) + 150 });
+      const preview = ls.get<Preview>("ps.widgetPreview", engine.settings.preview);
+      popup = await floatingApi.requestWindow(floatingSize(size, preview));
       const doc = popup.document;
       doc.title = "Pantalla Sana";
       doc.documentElement.lang = "es";
@@ -166,9 +175,11 @@ export default function App() {
       }
       popup.addEventListener("pagehide", () => {
         engine.setFrameWindow(window);
+        account.setTimerWindow(window);
         setFloating(null);
       }, { once: true });
       engine.setFrameWindow(popup);
+      account.setTimerWindow(popup);
       location.hash = "inicio";
       setFloating(popup);
     } catch {
@@ -179,6 +190,13 @@ export default function App() {
     }
   };
 
+  const resizeFloating = (preview: Preview) => {
+    if (!floating) return;
+    const { width, height } = floatingSize(size, preview);
+    // Picture-in-Picture requiere que el redimensionado ocurra en el clic.
+    try { floating.resizeTo(width, height); } catch { /* El navegador puede restringir el tamaño; la vista sigue siendo compacta. */ }
+  };
+
   const showFullPage = () => {
     location.hash = "inicio";
     floating?.close();
@@ -187,17 +205,102 @@ export default function App() {
   const restartIntro = () => {
     ls.set("ps.introDone", false);
     setIntro("welcome");
-    void api("/pause", "POST", { paused: true });
+    void account.stop();
   };
   const finishIntro = () => {
     ls.set("ps.introDone", true);
     location.hash = "inicio";
     setIntro("done");
   };
-  const togglePause = async () => {
-    const { paused } = await api<{ paused: boolean }>("/pause", "POST");
-    recordActivity(paused ? "Pausaste el seguimiento" : "Reanudaste el seguimiento", "pause");
+  const configureCamera = (id: string) => {
+    setDeviceId(id);
+    ls.set("ps.cameraDevice", id);
+    engine.configureCamera(id);
   };
+  const requestCamera = async (move = false) => {
+    if (floating) showFullPage();
+    setAccountBusy(true);
+    const allowed = await account.startMonitoring(move);
+    setAccountBusy(false);
+    if (!allowed) return;
+    configureCamera(deviceId);
+    setIntro(intro === "done" ? "configure" : "camera");
+  };
+  const openCameraSetup = () => { void requestCamera(); };
+  const leaveCameraSetup = () => {
+    setIntro(intro === "configure" ? "done" : "theme");
+  };
+  const togglePause = async () => {
+    if (!engine.paused) {
+      await account.stop();
+      recordActivity("Pausaste el seguimiento", "pause");
+      return;
+    }
+    const camera = engine.snapshot();
+    if (!camera.calibrated || camera.cam_error) return;
+    setAccountBusy(true);
+    const allowed = await account.startMonitoring();
+    setAccountBusy(false);
+    if (!allowed) return;
+    engine.setPaused(false);
+    if (!engine.paused) recordActivity("Reanudaste el seguimiento", "pause");
+  };
+  const accountAction = async (action: () => Promise<void>, error: string) => {
+    setAccountBusy(true);
+    try { await action(); } catch { push({ kind: "toast", msg: error, tone: "warn" }, 6000); }
+    finally { setAccountBusy(false); }
+  };
+  const accountButton = account.enabled && <button className="btn" disabled={!auth.ready || accountBusy}
+    onClick={() => void accountAction(auth.user ? () => account.signOut() : () => account.signIn(),
+      auth.user ? "No pudimos cerrar tu sesión." : "No pudimos iniciar sesión con Google.")}>
+    {auth.user ? "Cerrar sesión" : "Continuar con Google"}
+  </button>;
+  const canImport = account.canImport();
+  const importButton = canImport && <button className="btn" disabled={accountBusy}
+    onClick={() => void accountAction(() => account.importGuest(), "No pudimos importar el historial. Inténtalo de nuevo.")}>
+    Importar historial de este navegador
+  </button>;
+  const accountPanel = account.enabled && <section className="card account-settings" aria-labelledby="account-heading">
+    <h2 id="account-heading">Cuenta</h2>
+    {auth.user
+      ? <>
+        <p>Sesión iniciada con Google{auth.user.email && <><br /><strong>{auth.user.email}</strong></>}.</p>
+        <p className="muted">{auth.profileReady
+          ? "Se sincronizan tu historial, álbum, progreso, ajustes e imágenes y sonidos de aviso que elijas guardar."
+          : "Conectando con el perfil de tu cuenta…"}</p>
+        <p className="muted">La cámara seleccionada y su calibración dependen de este equipo.</p>
+        <p role="status">{auth.syncStatus === "synced" ? "Datos sincronizados."
+          : auth.syncStatus === "conflict" ? "El perfil cambió en otro equipo. Tus métricas se recuperaron y el progreso pendiente conserva una copia local."
+          : "Hay cambios guardados en este navegador pendientes de confirmar."}</p>
+        {auth.pendingCount > 0 && <div className="row">
+          <button className="btn" disabled={accountBusy} onClick={() => void accountAction(() => account.recoverPending(), "No se pudo recuperar la sesión.")}>Reintentar sincronización</button>
+          <button className="btn" onClick={() => {
+            const url = URL.createObjectURL(new Blob([JSON.stringify(account.pendingBackup(), null, 2)], { type: "application/json" }));
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "pantalla-sana-recuperacion.json";
+            link.click();
+            window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+          }}>Descargar copia pendiente</button>
+          {auth.syncStatus === "conflict" && <button className="btn" onClick={() => account.keepCloudProgress()}>Conservar progreso de la cuenta y descartar copia pendiente</button>}
+        </div>}
+        {importButton}
+        {auth.canImportProfile && <div className="row">
+          <button className="btn" disabled={accountBusy} onClick={() => void accountAction(() => account.importGuestProfile(),
+            "No pudimos importar el perfil de invitado. Si estás siguiendo desde otro equipo, páusalo y vuelve a intentarlo.")}>
+            Importar álbum, progreso y ajustes de este navegador
+          </button>
+          <p className="muted">Se añadirán tus cartas y tu progreso de invitado. Las preferencias de la cuenta tienen prioridad.</p>
+        </div>}
+      </>
+      : <><p className="muted">{auth.ready ? "Modo invitado. Inicia sesión para sincronizar tu historial." : "Comprobando tu sesión…"}</p>{accountButton}</>}
+  </section>;
+  const monitorNotice = (auth.message || auth.locked) && <div className="notice" role="status">
+    {auth.message}
+    {auth.locked && <button className="btn" disabled={accountBusy} onClick={() => void requestCamera(true)}>Mover seguimiento a este equipo</button>}
+  </div>;
+  const setTheme = (value: Theme) => { void accountAction(() => account.updateAppearance("theme", value), "No pudimos guardar el tema."); };
+  const setSize = (value: Size) => { void accountAction(() => account.updateAppearance("widgetSize", value), "No pudimos guardar el tamaño del widget."); };
   const appearance = <Choices label="Tema" value={theme} options={THEMES} onChange={setTheme} />;
 
   const widgetAlert = [...items].reverse().find((item): item is Extract<Item, { kind: "alert" }> => item.kind === "alert");
@@ -216,20 +319,16 @@ export default function App() {
               <span className="intro-icon" aria-hidden="true"><Hand /></span>
               <h1>Hola, cuido tu espalda y tus ojos</h1>
               <p>Mientras trabajas, la cámara me ayuda a avisarte. Tu video se procesa solo en tu navegador.</p>
-              <button className="btn primary" onClick={() => { void api("/pause", "POST", { paused: false }); setIntro("camera"); }}>Empezar</button>
-            </> : intro === "camera" ? <>
-              <div className="video-box intro-camera">
-                {state?.camera_on ? <CameraPreview mode="Mostrar" />
-                  : <div className="video-ph">{state?.cam_error ? "Permite el acceso a la cámara para continuar" : "Preparando tu cámara…"}</div>}
-              </div>
-              <h1>{state?.calibrating ? "Calibrando tu postura…" : "Pongámonos cómodos"}</h1>
-              <p>Siéntate derecho y deja que se vean tu cara y tus hombros.</p>
-              {state?.calibrating ? <progress aria-label="Calibración" max={1} value={state.cal_progress} />
-                : <button className="btn primary" disabled={!state?.camera_on} onClick={() => void api("/calibrate", "POST")}>
-                  {state?.calibrated ? "Volver a calibrar" : "Ya me veo bien"}
-                </button>}
-              <button className="btn" disabled={state?.calibrating} onClick={() => setIntro("theme")}>{state?.calibrated ? "Continuar" : "Configurar la cámara después"}</button>
-            </> : intro === "theme" ? <>
+              <button className="btn primary" disabled={!auth.ready || accountBusy} onClick={openCameraSetup}>Empezar</button>
+              {accountButton}
+              {auth.user && <button className="btn" onClick={finishIntro}>Ir al panel</button>}
+              {monitorNotice}
+            </> : intro === "camera" || intro === "configure" ? (
+              <CameraSetup state={state} deviceId={deviceId} onDevice={configureCamera}
+                onCalibrate={() => engine.calibrate()}
+                onContinue={() => { if (engine.snapshot().calibrated) leaveCameraSetup(); }}
+                onSkip={() => { void account.stop(); leaveCameraSetup(); }} />
+            ) : intro === "theme" ? <>
               <h1>Elige tu estilo</h1>
               {appearance}
               <button className="btn primary" onClick={() => setIntro("ready")}>Siguiente</button>
@@ -252,21 +351,39 @@ export default function App() {
                 return <a key={v} href={`#${v}`} onClick={() => floating?.close()}
                   aria-current={view === v ? "page" : undefined}><Icon aria-hidden="true" />{name}</a>;
               })}
+              {auth.user && <button type="button" className="session-sign-out" disabled={accountBusy}
+                onClick={() => void accountAction(() => account.signOut(), "No pudimos cerrar tu sesión.")}>
+                <LogOut aria-hidden="true" /> Cerrar sesión
+              </button>}
             </nav>
           </aside>
           <div className="session-content">
             <header className="ps-header session-header">
               <span><LockKeyhole aria-hidden="true" /> Procesamiento local</span>
               <div className="window-actions">
-                {view !== "inicio" && <button className="btn" onClick={togglePause}>{state?.paused ? "Reanudar" : "Pausar"}</button>}
+                {!auth.user && accountButton}
+                {view !== "inicio" && state?.calibrated && !state.cam_error && (
+                  <button className="btn" onClick={togglePause}>{state.paused ? "Reanudar" : "Pausar"}</button>
+                )}
                 <button className="btn primary" disabled={openingWidget} onClick={floating ? showFullPage : openFloating}>
                   {floating ? <Maximize2 aria-hidden="true" /> : <Minimize2 aria-hidden="true" />}
                   {floating ? " Pantalla completa" : " Abrir widget"}
                 </button>
               </div>
             </header>
+            {monitorNotice}
+            {view !== "ajustes" && canImport && !auth.importNoticeDismissed && <div className="notice import-notice">
+              <div>
+                <p>Este navegador tiene métricas de invitado que puedes añadir a tu cuenta.</p>
+                <p>También puedes importarlas después desde Ajustes → Cuenta.</p>
+                {importButton}
+              </div>
+              <button className="btn import-dismiss" type="button" onClick={() => account.dismissImportNotice()} aria-label="Cerrar aviso de importación" title="Cerrar aviso">
+                <X aria-hidden="true" />
+              </button>
+            </div>}
             {view === "ajustes" ? <div className="ps-panel">
-              <SettingsView appearance={<section className="card appearance">
+              <SettingsView settingsRevision={auth.settingsRevision} accountPanel={accountPanel} appearance={<section className="card appearance">
                 <h2>Apariencia</h2>
                 {appearance}
                 <h3>Widget</h3>
@@ -276,9 +393,11 @@ export default function App() {
                 {notif === "default" && <button className="btn" onClick={askNotif}>Activar avisos con la pestaña oculta</button>}
               </section>} />
             </div>
-              : view === "semana" ? <div className="ps-panel"><Week /></div>
-              : view === "album" ? <div className="ps-panel"><Album version={albumVersion} packs={state?.packs ?? 0} onOpenPack={openPack} /></div>
-              : state ? floating ? <p className="loading">El seguimiento está en la ventana flotante.</p> : <Home s={state} activity={activity} onTogglePause={togglePause} /> : <p className="loading">{online ? "Cargando…" : "Conectando…"}</p>}
+              : view === "semana" ? <div className="ps-panel"><Week key={auth.user?.id ?? "guest"} revision={auth.revision} signedIn={!!auth.user} /></div>
+              : view === "album" ? <div className="ps-panel"><Album key={auth.user?.id ?? "guest"} version={albumVersion + auth.progressRevision}
+                packs={state?.packs ?? 0} onOpenPack={openPack} /></div>
+              : state ? floating ? <p className="loading">El seguimiento está en la ventana flotante.</p> : <Home s={state} activity={activity}
+                settingsRevision={auth.settingsRevision} onTogglePause={togglePause} onConfigureCamera={openCameraSetup} /> : <p className="loading">{online ? "Cargando…" : "Conectando…"}</p>}
             <footer className="privacy">
               <span><LockKeyhole aria-hidden="true" /> Tu video se procesa solo en tu navegador y nunca sale de tu equipo.</span>
               <span>Peticiones a internet: <b>{state?.net_requests_today ?? 0}</b></span>
@@ -290,7 +409,8 @@ export default function App() {
 
       {floating ? createPortal(
         <div className="ps-app mode-widget">
-          <div hidden={!!widgetAlert}>{state && <Home s={state} onTogglePause={togglePause} onFullPage={showFullPage} onNavigate={(next) => {
+          <div hidden={!!widgetAlert}>{state && <Home s={state} settingsRevision={auth.settingsRevision} onTogglePause={togglePause} onConfigureCamera={openCameraSetup}
+            onFullPage={showFullPage} onWidgetPreviewChange={resizeFloating} onNavigate={(next) => {
             location.hash = next;
             floating.close();
             window.focus();

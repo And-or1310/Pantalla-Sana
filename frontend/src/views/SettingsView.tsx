@@ -40,7 +40,9 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   return <section className="card"><h3>{title}</h3>{hint && <p className="muted small">{hint}</p>}{children}</section>;
 }
 
-export default function SettingsView({ appearance }: { appearance: ReactNode }) {
+export default function SettingsView({ appearance, accountPanel, settingsRevision }: {
+  appearance: ReactNode; accountPanel: ReactNode; settingsRevision: number;
+}) {
   const [s, setS] = useState<Settings | null>(null);
   const [msg, setMsg] = useState("");
   const [stamp, setStamp] = useState(Date.now());          // para refrescar la miniatura tras subir otra imagen
@@ -49,11 +51,10 @@ export default function SettingsView({ appearance }: { appearance: ReactNode }) 
 
   useEffect(() => {
     api<Settings>("/settings").then((x) => { setS(x); setTopic(x.ntfy); }).catch(() => setMsg("No pude cargar tus ajustes"));
-  }, []);
+  }, [settingsRevision]);
 
   const flash = (m: string) => { setMsg(m); window.clearTimeout(timer.current); timer.current = window.setTimeout(() => setMsg(""), 2500); };
   const save = (patch: Partial<Settings>) => {
-    setS((x) => (x ? { ...x, ...patch } : x));
     return api<Settings>("/settings", "PUT", patch).then((x) => { setS(x); flash("✓ Cambios guardados"); return true; })
       .catch(() => { flash("No pude guardar ese cambio"); return false; });
   };
@@ -76,6 +77,7 @@ export default function SettingsView({ appearance }: { appearance: ReactNode }) 
     <main className="page settings-page">
       <div className="page-head"><h2>Ajustes</h2><span className="saved" role="status">{msg}</span></div>
       <div className="settings">
+        {accountPanel}
         {appearance}
           <Section title="Mi cámara en pantalla" hint="«Solo contorno» y «Ocultar» no muestran tu imagen. El video nunca se guarda.">
             <Seg label="Vista de la cámara" value={s.preview} options={["Mostrar", "Solo contorno", "Ocultar"]} onChange={(v) => save({ preview: v })} />
@@ -95,7 +97,7 @@ export default function SettingsView({ appearance }: { appearance: ReactNode }) 
               </div>
             )} 
             <Switch on={s.net} onChange={(v) => save({ net: v })} label="Buscar imágenes en internet"
-              hint="Solo se piden imágenes a las APIs del paquete elegido. Tu video y tus datos nunca salen de tu navegador. Sin internet uso las que ya guardé." />
+              hint="El paquete elegido pide imágenes a su API. Sin internet se usan las que ya guardaste." />
           </Section>
           <Section title="Sonido y prueba del aviso">
             <Seg label="Sonido del aviso" value={s.snd_mode} options={SND} onChange={(v) => save({ snd_mode: v })} />
@@ -116,7 +118,7 @@ export default function SettingsView({ appearance }: { appearance: ReactNode }) 
 
           <Section title="¿Qué quieres que cuide?">
             {GROUPS.map(([k, n]) => (
-              <Switch key={k} label={n} on={groups[k] ?? true} onChange={(v) => save({ groups: { ...groups, [k]: v } })} />
+              <Switch key={k} label={n} on={groups[k] ?? true} onChange={(v) => save({ groups: { [k]: v } })} />
             ))}
           </Section>
 
@@ -130,7 +132,7 @@ export default function SettingsView({ appearance }: { appearance: ReactNode }) 
 
           <Section title="Para presentar">
             <Switch on={s.demo} onChange={(v) => save({ demo: v })} label="Modo demostración" hint="Los avisos salen mucho más rápido para mostrarlo en vivo." />
-            <button className="btn" onClick={() => api("/packs/gift", "POST")}><Gift aria-hidden="true" /> Regalarme un sobre</button>
+            <button className="btn" onClick={() => { void api("/packs/gift", "POST").catch(() => flash("No pude regalarte un sobre")); }}><Gift aria-hidden="true" /> Regalarme un sobre</button>
           </Section>
       </div>
     </main>

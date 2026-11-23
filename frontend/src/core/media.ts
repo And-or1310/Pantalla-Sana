@@ -1,6 +1,8 @@
-// "Mi imagen" / "Mi sonido": el archivo se guarda en IndexedDB de ESTE navegador (nunca se sube a ningún servidor).
+// Archivos de invitado en IndexedDB. Los de cuenta se cargan desde su área privada.
+export type MediaKind = "image" | "sound";
 let imageUrl = "";
 let soundUrl = "";
+let generation = 0;
 
 const open = () => new Promise<IDBDatabase>((res, rej) => {
   const r = indexedDB.open("ps-media", 1);
@@ -17,21 +19,36 @@ const idb = async <T,>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBR
   });
 };
 
+export function setMedia(kind: MediaKind, blob?: Blob) {
+  const old = kind === "image" ? imageUrl : soundUrl;
+  if (old) URL.revokeObjectURL(old);
+  const next = blob ? URL.createObjectURL(blob) : "";
+  if (kind === "image") imageUrl = next;
+  else soundUrl = next;
+}
+
+export function clearUserMedia() {
+  ++generation;
+  setMedia("image");
+  setMedia("sound");
+}
+
+export const readGuestMedia = (kind: MediaKind) => idb<Blob | undefined>("readonly", (s) => s.get(kind));
+
 export async function loadUserMedia() {
+  const current = generation;
   try {
     for (const kind of ["image", "sound"] as const) {
-      const b = await idb<Blob | undefined>("readonly", (s) => s.get(kind));
-      if (b) { const u = URL.createObjectURL(b); if (kind === "image") imageUrl = u; else soundUrl = u; }
+      const blob = await readGuestMedia(kind);
+      if (current === generation) setMedia(kind, blob);
     }
   } catch { /* sin IndexedDB */ }
 }
 
-export async function saveUserFile(kind: "image" | "sound", file: File) {
+export async function saveUserFile(kind: MediaKind, file: File) {
+  const current = generation;
   await idb("readwrite", (s) => s.put(file, kind));
-  const old = kind === "image" ? imageUrl : soundUrl;
-  if (old) URL.revokeObjectURL(old);
-  const u = URL.createObjectURL(file);
-  if (kind === "image") imageUrl = u; else soundUrl = u;
+  if (current === generation) setMedia(kind, file);
 }
 
 export const getUserImageUrl = () => imageUrl;

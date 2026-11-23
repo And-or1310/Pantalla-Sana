@@ -136,6 +136,7 @@ dt { font-size: 1.1rem; font-weight: 800; } dd { margin: 0; color: var(--muted);
 .front em { font-style: normal; font-size: .8rem; font-weight: 800; color: var(--primary); }
 .flipper.up .back { transform: rotateY(-180deg); } .flipper.up .front { transform: rotateY(0); }
 .btn:disabled { opacity: .5; cursor: default; }
+.ai-card .btn.primary:disabled { background: var(--surface2); color: var(--muted); opacity: 1; }
 
 /* ---------- ajustes ---------- */
 .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }

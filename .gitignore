@@ -5,3 +5,6 @@ dist
 .env.production
 .env.example
 __pycache__
+.venv/
+.runtime/
+.pytest_cache/
