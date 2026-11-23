@@ -563,6 +563,9 @@ export interface components {
             demo: boolean;
             /** Session Min */
             session_min: number;
+            session_sec?: number;
+            posture_sec?: number;
+            good_posture_sec?: number;
             /** Posture Pct */
             posture_pct: number | null;
             /** Alerts */

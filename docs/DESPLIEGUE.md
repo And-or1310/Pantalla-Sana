@@ -25,10 +25,20 @@ En Render, pon `PS_ALLOWED_ORIGINS` = tu URL de Netlify y redespliega el proxy. 
 
 ## 4) Habilitar cuentas en el sitio publicado
 
-1. Aplica en orden las migraciones de [historial](../supabase/migrations/202611170001_account_history.sql) y [perfil](../supabase/migrations/202611170002_account_profile.sql) en el proyecto Supabase que usará el sitio.
+1. Aplica en orden las migraciones de [historial](../supabase/migrations/202611170001_account_history.sql), [perfil](../supabase/migrations/202611170002_account_profile.sql), [importación de progreso](../supabase/migrations/202611170003_guest_progress_merge.sql) y [recuperación](../supabase/migrations/202611220004_session_recovery.sql) en el proyecto Supabase que usará el sitio.
 2. Configura el proveedor Google en Supabase. Usa la URL de Netlify como URL de la app y autoriza el regreso a esa URL. En Google Cloud, registra el origen publicado y la URL de callback del proyecto Supabase.
 3. Agrega `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` a la configuración del frontend en Netlify y vuelve a desplegar.
 4. Prueba el inicio de sesión desde la URL publicada. Verifica el historial y el álbum con dos perfiles de navegador de la misma cuenta, y comprueba que una segunda cuenta ve su propio perfil.
+
+## 5) Verificación previa a publicar
+
+Ejecuta las comprobaciones de frontend, base de datos y Python descritas en el README. GitHub Actions las repite al subir la rama. Para que Render espere esas comprobaciones, configura **After CI Checks Pass**. En GitHub puedes exigirlas mediante la protección de la rama principal.
+
+En Render, confirma que Uvicorn confía únicamente en los proxies de entrada del servicio mediante `FORWARDED_ALLOW_IPS`. Si todas las peticiones aparecen con la misma dirección interna, los usuarios compartirán la cuota por IP hasta configurar los proxies. FastAPI no utiliza directamente una cabecera enviada por el navegador.
+
+`PS_RATE_DB` permite elegir dónde guardar las cuotas SQLite. El disco efímero del plan gratuito conserva el archivo durante la vida de la instancia. Un reemplazo puede reiniciar las cuotas. Para mantenerlas entre instancias se necesita almacenamiento persistente. No se contrató ningún servicio adicional.
+
+Después de aplicar la migración de recuperación, verifica una sesión con internet, desconecta la red y espera la pausa por vencimiento del permiso. Reconecta y revisa **Ajustes → Cuenta**. Repite cerrando la pestaña y abriéndola con la misma cuenta. Si otro equipo guardó progreso mientras tanto, conserva la copia local y revisa el conflicto antes de descartarla. La prueba automática cubre estas decisiones del servidor, y la prueba real verifica el navegador y el despliegue.
 
 ## Limitaciones
 - Pestaña en segundo plano: el navegador la frena y los avisos se retrasan. Mejor dejarla en una ventana aparte visible.

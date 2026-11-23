@@ -1,6 +1,7 @@
 import { CircleAlert, CircleCheck, Accessibility, Egg, Eye, Frown, Meh, Moon, PartyPopper, Smile, Sparkles, Star, Laptop, LockKeyhole, Maximize2, Menu, Pause, Play, Settings2, Timer, Video, VideoOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { ls } from "../core/store";
 import CameraPreview from "../components/Preview";
 import type { LiveState, Preview, Settings } from "../lib/types";
 
@@ -83,8 +84,9 @@ export default function Home({ s, activity = [], settingsRevision, onTogglePause
   onNavigate?: (view: "semana" | "album" | "ajustes") => void;
 }) {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [widgetPreview, setWidgetPreview] = useState(() => ls.get<Preview | null>("ps.widgetPreview", null));
   useEffect(() => { api<Settings>("/settings").then(setSettings).catch(() => {}); }, [settingsRevision]);
-  const preview = settings?.preview ?? "Mostrar";
+  const preview = (onFullPage ? widgetPreview : null) ?? settings?.preview ?? "Mostrar";
   const setPreview = (p: Preview) => {
     setSettings((x) => (x ? { ...x, preview: p } : x));
     api<Settings>("/settings", "PUT", { preview: p }).then(setSettings).catch(() => setSettings(settings));
@@ -142,7 +144,8 @@ export default function Home({ s, activity = [], settingsRevision, onTogglePause
               <button type="button" aria-label={`Cambiar vista de cámara a ${nextPreview}`}
                 title={`Vista de cámara · ${preview}`} onClick={() => {
                   if (compact || nextPreview === "Ocultar") onWidgetPreviewChange?.(nextPreview);
-                  setPreview(nextPreview);
+                  setWidgetPreview(nextPreview);
+                  ls.set("ps.widgetPreview", nextPreview);
                 }}>{compact ? <VideoOff aria-hidden="true" /> : <Video aria-hidden="true" />}</button>
               {needsCameraSetup ? compact && <button type="button" aria-label="Configurar cámara" title="Configurar cámara"
                 onClick={onConfigureCamera}><Settings2 aria-hidden="true" /></button>

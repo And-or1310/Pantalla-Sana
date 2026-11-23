@@ -2,7 +2,7 @@
  
 ### Requisitos
  
-- **Git**, **Node 22 o superior** y **Python 3.10 o superior**.
+- **Git**, **Node 22 o superior** y **Python 3.11 o superior**.
 - Una clave de Gemini, solo si quieres probar la IA. Sin ella todo funciona menos «Mejorar con IA».
 ### 1. Clonar
  
@@ -41,11 +41,33 @@ En el recorrido inicial puedes elegir la cámara y calibrar cuando se vean tu ca
 
 Para habilitar «Continuar con Google», agrega `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` a `frontend/.env.local`. Usa la URL del proyecto y la clave publicable. Para probar en local, permite `http://localhost:5173` en la configuración de redirecciones de Supabase y activa Google con la URL de callback de ese proyecto.
 
-En el SQL Editor del proyecto de desarrollo, ejecuta en orden [la migración de historial y seguimiento](supabase/migrations/202611170001_account_history.sql) y [la migración de perfil y archivos privados](supabase/migrations/202611170002_account_profile.sql). Ejecuta cada migración una vez. Las funciones de la app requieren una sesión de Google y comprueban la identidad de la cuenta. Los secretos del cliente OAuth se configuran en Supabase.
+En el SQL Editor del proyecto de desarrollo, ejecuta en orden las migraciones de [historial](supabase/migrations/202611170001_account_history.sql), [perfil y archivos privados](supabase/migrations/202611170002_account_profile.sql), [importación de progreso](supabase/migrations/202611170003_guest_progress_merge.sql) y [recuperación de sesiones](supabase/migrations/202611220004_session_recovery.sql). Ejecuta cada migración una vez. Las funciones de la app requieren una sesión de Google y comprueban la identidad de la cuenta. Los secretos del cliente OAuth se configuran en Supabase.
 
 Para verificar la integración, abre la app en dos perfiles de navegador con la misma cuenta de Google. Calibra la cámara en el primer perfil, comprueba que el segundo puede consultar «Mi semana» y, desde el segundo, intenta iniciar el seguimiento y elige «Mover seguimiento a este equipo». Calibra allí y comprueba que el primero se pausa y ambos muestran el mismo historial tras sincronizar. Prueba también con otra cuenta para verificar que su historial es independiente.
 
-En **Ajustes → Cuenta** puedes importar métricas reales de invitado y copiar álbum, progreso y preferencias locales a un perfil de cuenta sin progreso previo. Las preferencias existentes de la cuenta tienen prioridad. El álbum, XP, rachas, sobres, compañero, tema, tamaño del widget y preferencias de alertas se sincronizan. Los archivos elegidos para los avisos se guardan en un área privada de Supabase Storage. La cámara elegida, la calibración y el procesamiento del video son locales. Si se pierde la conexión y vence el permiso, se pausa la cámara y los cambios pendientes de confirmar pueden perderse.
+En **Ajustes → Cuenta** puedes importar métricas reales de invitado y añadir el álbum, progreso y preferencias de este navegador a una cuenta con o sin progreso previo. El álbum conserva una copia por carta. XP y sobres se suman una sola vez por origen de importación, y las preferencias existentes de la cuenta tienen prioridad. Los archivos elegidos para los avisos se guardan en un área privada de Supabase Storage. La cámara elegida, la calibración y la vista de cámara de Inicio y del widget son locales.
+
+Durante una sesión, cada segundo se guarda una copia de recuperación en este navegador, identificada por cuenta y sesión. Si se pierde la conexión y vence el permiso, la cámara se pausa. Al regresar, se reintenta guardar las métricas con el mismo identificador. El progreso se recupera si su versión sigue vigente. Si otro equipo ya confirmó cambios, se mantiene el progreso remoto y la copia local queda disponible en **Ajustes → Cuenta** para descargarla o descartarla explícitamente. Los cambios posteriores al último guardado local pueden perderse en un cierre abrupto. Borrar los datos del navegador elimina las copias locales.
+
+La copia habitual de la sesión activa no muestra los botones de recuperación. Estos aparecen si falla su sincronización o queda una sesión anterior pendiente. Al pausar, se intenta confirmar y recuperar la última copia automáticamente.
+
+Una calibración válida se conserva durante 30 minutos en el navegador, por cuenta, cámara y resolución. Al abrir la misma cámara, puedes continuar cuando vuelvan a verse cara y hombros. Si cambiaste de posición, usa **Calibrar de nuevo**. El video continúa siendo local. Después de 3 segundos fuera de cuadro durante el seguimiento, se muestra un aviso y suena un pitido si el sonido está habilitado. Con la pestaña oculta se utiliza la notificación del navegador cuando el permiso ya está concedido. Se emite un aviso por ausencia y se habilita otro cuando regresas al cuadro.
+
+Los ajustes se confirman al guardarlos en Supabase. Si la petición falla, la interfaz informa el error para que puedas reintentarlo. La recuperación de sesiones conserva métricas y progreso.
+
+### Resumen local y lectura con IA
+
+El resumen local aplica reglas y calcula la postura ponderada por tiempo. La lectura opcional con IA usa las mismas estadísticas para seleccionar hallazgos y proponer hábitos. FastAPI construye un catálogo de hechos con cifras y unidades explícitas; la IA devuelve sus identificadores y el servidor inserta los textos verificados. Si devuelve identificadores inválidos o cifras fuera de los hechos, se rechaza la respuesta. Las recomendaciones y el título son texto generado.
+
+La última lectura de IA se conserva hasta siete días en este navegador, separada por cuenta y por datos reales o de ejemplo, incluso al recargar. Muestra su fecha de generación y avisa cuando hay datos nuevos y pasó el intervalo para regenerar. La preferencia «Con IA» se mantiene en la cuenta; enviar datos al proveedor requiere pulsar **Mejorar con IA**. En Netlify este flujo usa el servicio de Render configurado en `VITE_PROXY_URL`.
+
+La app permite regenerar después de diez minutos y cuando cambian los datos. El aviso de actualización espera ese mismo intervalo. Las solicitudes simultáneas de una cuenta comparten la misma generación. FastAPI reutiliza durante diez minutos la redacción para el mismo cliente y estadísticas y aplica un intervalo mínimo entre nuevas generaciones por IP, además de las cuotas horaria y diaria. Esto también limita solicitudes hechas fuera de la interfaz. La caché contiene la redacción y un identificador derivado de los datos y del cliente.
+
+La interfaz consulta `GET /summary/status` para deshabilitar el botón durante la espera real del servidor y mostrar los minutos restantes. Esa consulta no envía estadísticas ni llama al proveedor. Un fallo conserva la última lectura disponible y muestra el mensaje hasta la siguiente solicitud o el cambio de modo. El resumen local se recalcula automáticamente cada diez segundos mientras **Mi semana** está abierta y muestra su hora de actualización.
+
+El contador se actualiza cada segundo y muestra segundos durante el último minuto. Cuando el servidor confirma disponibilidad, la espera se elimina. Las respuestas anteriores de disponibilidad se ignoran si ya se inició una consulta más reciente.
+
+Los datos de ejemplo se cargan explícitamente desde **Datos de demostración**, al final de **Mi semana**, y rellenan días sin registros reales. Mientras estén presentes, el resumen y las gráficas se etiquetan como ejemplos o mezcla de datos, y se ofrece **Quitar datos de ejemplo**. Esta acción conserva los días reales. El botón **Mejorar con IA** aparece al seleccionar **Con IA**.
  
 ### 3. Backend (terminal 2, solo si quieres la IA)
  
@@ -148,7 +170,7 @@ pantalla-sana/
 
 | Archivo | Qué hace |
 |---|---|
-| `package.json` | Dependencias y scripts (`dev`, `build`, `test`, `types`). Versiones fijas de React 18.3.1, Vite 5.4.11, TypeScript 5.6.3 y `@mediapipe/tasks-vision` 0.10.14. |
+| `package.json` | Dependencias y scripts (`dev`, `build`, `test`, `test:db`, `types`). React 18.3.1, Vite 6.4.6, TypeScript 5.6.3 y `@mediapipe/tasks-vision` 0.10.14. |
 | `package-lock.json` | Versiones exactas instaladas. Se sube a git; no se edita a mano. |
 | `vite.config.ts` | Configuración de Vite: plugin de React y puerto 5173 en desarrollo. |
 | `tsconfig.json` | TypeScript en modo estricto; incluye `src` y `vite.config.ts`. Marca error por variables o parámetros sin usar. |
@@ -322,6 +344,11 @@ La primera carga baja unos 10 MB de modelos.
 | `PS_ALLOWED_ORIGINS` | URL(s) de tu sitio en Netlify, separadas por coma. Sin esto el navegador bloquea las llamadas (CORS). |
 | `PS_IP_PER_HOUR` | Peticiones por IP por hora (12). |
 | `PS_GLOBAL_PER_DAY` | Tope diario total (400). |
+| `PS_AI_MIN_INTERVAL_SECONDS` | Intervalo entre nuevas generaciones por IP (600 segundos). Las respuestas reutilizadas no consumen una generación. |
+| `PS_RATE_DB` | Ruta del archivo SQLite de cuotas. Conserva las cuotas mientras se conserve ese archivo. |
+| `FORWARDED_ALLOW_IPS` | Lista de proxies de confianza que Uvicorn puede usar para resolver la IP. Configúrala según la red del despliegue. |
+
+El backend lee el cliente resuelto por Uvicorn y no interpreta directamente `X-Forwarded-For`. Las cuotas se actualizan en una transacción SQLite y sobreviven al reinicio del proceso con el mismo archivo. El almacenamiento del plan gratuito de Render es efímero, por lo que las cuotas pueden reiniciarse al reemplazar la instancia. Para conservarlas entre reemplazos se necesita almacenamiento persistente y `PS_RATE_DB` apuntando a él. Los límites del proyecto del proveedor de IA complementan estas cuotas.
 
 ### Garantías de privacidad que el código hace cumplir
 
@@ -343,7 +370,7 @@ uvicorn proxy_server:app --port 8787
 
 ## 6. Correr el proyecto en tu computadora
 
-Requisitos: Node 22 o superior, y Python 3.10 o superior si vas a probar el backend.
+Requisitos: Node 22 o superior, y Python 3.11 o superior si vas a probar el backend.
 
 ```bash
 cd frontend
@@ -361,6 +388,25 @@ VITE_PROXY_URL=http://localhost:8787
 y arranca el backend con `PS_ALLOWED_ORIGINS=http://localhost:5173`.
 
 La cámara solo funciona en `https://` o en `localhost`.
+
+### Comprobaciones automáticas
+
+Desde `frontend`, instala con `npm ci` y ejecuta `npm test`, `npm run test:db` y `npm run build`. Las pruebas de base de datos aplican todas las migraciones en PostgreSQL embebido (PGlite), con contratos locales para Auth y Storage. Verifican permisos, importaciones, traspaso, recuperación de sesiones y reintentos sin duplicados.
+
+Desde `backend`, instala `python -m pip install -r requirements-dev.txt` y ejecuta `python -m unittest discover -s tests -v`. Las peticiones al proveedor de IA se simulan en estas pruebas. El servicio publicado utiliza su clave real del entorno.
+
+`.github/workflows/verify.yml` ejecuta las comprobaciones en cada push a `main`, `mejoras` o `codex/**`, y en pull requests hacia `main`. El backend se prueba con Python 3.11 y 3.12. Los trabajos usan entornos nuevos y no requieren las claves del proyecto. Para exigir pruebas aprobadas antes de integrar, configura la protección de `main` en GitHub. Render permite seleccionar **After CI Checks Pass** en su configuración de despliegue automático.
+
+El entorno `backend/.venv` se crea en cada computadora con `python -m venv .venv`. Git ignora el directorio. Al actualizar una copia que antes lo tenía versionado, Git puede intentar retirar sus archivos anteriores, por lo que conviene recrear el entorno siguiendo Inicio rápido si dejó de funcionar.
+
+### Cambios relevantes para el documento técnico, noviembre de 2026
+
+- Se agregó recuperación de métricas y progreso con copias locales por cuenta y sesión, control de versiones en PostgreSQL y revisión explícita cuando otro equipo ya guardó cambios.
+- Se agregaron pruebas automáticas de base de datos y FastAPI y un flujo de integración continua en GitHub Actions.
+- Se reemplazaron las cuotas en memoria del servicio de IA por transacciones SQLite y se limitaron los cuerpos recibidos durante su lectura. Las llamadas externas se ejecutan fuera del bucle asíncrono.
+- El resumen semanal pondera la postura por tiempo analizado, muestra la cobertura y relaciona sugerencias con observaciones. Los días sin muestras quedan identificados.
+- Se retiró el entorno virtual del control de versiones y se documentó la instalación desde cero.
+- Se actualizaron Vite a 6.4.6 y tsx a 4.23.15 para resolver los avisos detectados por npm. FastAPI y Uvicorn tienen versiones directas fijadas en requirements.txt.
 
 ---
 
@@ -434,7 +480,7 @@ Guía detallada: [`docs/DESPLIEGUE.md`](docs/DESPLIEGUE.md).
 ## 9. Limitaciones conocidas
 
 - Si la pestaña queda en segundo plano, el navegador frena el procesamiento y los avisos se retrasan. Lo ideal es una ventana aparte visible.
-- Álbum, semana y ajustes viven en el navegador de cada persona: si borra los datos del sitio o cambia de equipo, se pierden.
+- En modo invitado, el álbum, el historial y los ajustes se guardan en ese navegador y se pierden si se borran los datos del sitio. Con una cuenta, Supabase sincroniza los datos confirmados y conserva copias locales de las sesiones pendientes para su recuperación. Un cierre abrupto puede perder la última fracción de segundo todavía no guardada.
 - El plan gratuito de Render duerme el servicio; la primera petición de IA puede tardar hasta un minuto (el botón «Probar conexión» lo despierta).
 - No se permiten claves de IA propias en la web: una clave en el navegador no es segura. Solo se usa el servicio del equipo.
 - Los límites de la API de NASA con `DEMO_KEY` son bajos; si fallan, la app usa la memoria de imágenes guardadas o un estiramiento local.

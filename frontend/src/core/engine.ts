@@ -6,7 +6,8 @@ import {
 } from "./core";
 import { getUserImageUrl, getUserSoundUrl, saveUserFile } from "./media";
 import { ART_PACKS, getContent, notifyPhone, type Src } from "./sources";
-import { Metrics, Progress, RARITY, levelInfo, loadSettings, mergeSettings, saveSettings, stageOf } from "./store";
+import { Metrics, Progress, RARITY, levelInfo, loadSettings, ls, mergeSettings, saveSettings, stageOf } from "./store";
+import { readCalibration } from "./calibration";
 import { Vision } from "./vision";
 
 type Hero = LiveState["hero"];
@@ -55,7 +56,12 @@ export class Engine {
   private calibrationFailed = false;
   private canMonitor = () => true;
   private localSettings = true;
+  private checkpoint = () => {};
   private packWork: Promise<void> | null = null;
+  private calibrationScope = "guest";
+  private missingSince: number | null = null;
+  private presenceWarning = false;
+  private trackingStarted = false;
 
   constructor(private withCamera = true, private clock: () => number = () => Date.now() / 1000) {
     const now = clock();
@@ -94,11 +100,28 @@ export class Engine {
     void this.vision.start(
       this.deviceId,
       (raw, ear, now) => this.ingest(raw, ear, now),
-      () => { this.camError = false; this.cameraOn = true; },
+      () => {
+        this.camError = false;
+        this.cameraOn = true;
+        const identity = this.vision.calibrationIdentity();
+        const saved = identity ? readCalibration(ls.get(this.calibrationKey(identity), null), this.clock()) : null;
+        if (saved) {
+          this.baseline = saved.baseline;
+          this.tr.earHist = saved.ear.map((ear) => [this.clock(), ear]);
+          this.toast("Recuperamos tu calibración reciente. Puedes recalibrar si cambiaste de posición.", "muted");
+        }
+      },
       () => { this.stopSampling(this.clock()); this.camError = true; this.cameraOn = false; });
   }
 
   setMonitoringAccess(canMonitor: () => boolean) { this.canMonitor = canMonitor; }
+  setCalibrationScope(scope: string) {
+    this.calibrationScope = scope;
+    this.baseline = null;
+    this.trackingStarted = false;
+  }
+  private calibrationKey(identity: string) { return `ps.calibration.${this.calibrationScope}.${identity}`; }
+  setCheckpoint(checkpoint: () => void) { this.checkpoint = checkpoint; }
 
   setSettingsScope(settings: Settings, local: boolean) {
     this.settings = settings;
@@ -170,6 +193,7 @@ export class Engine {
   calibrate(now = this.clock()) {
     if (this.cal || this.paused || (this.withCamera && (!this.cameraOn || !this.hasPresence(now)))) return false;
     this.calibrationFailed = false;
+    this.baseline = null;
     this.cal = { start: now, s: { hd: [], cl: [], tl: [], roll: [] }, ear: [] };
     return true;
   }
@@ -184,6 +208,8 @@ export class Engine {
       this.tr.workStart = now;
       this.lastEval = now;
       for (const st of this.rt) st.since = null;
+      const identity = this.vision.calibrationIdentity();
+      if (identity) ls.set(this.calibrationKey(identity), { at: now, baseline: this.baseline, ear });
       this.toast("¡Listo! Ya te estoy cuidando", "ok");
     } else this.calibrationFailed = true;
   }
@@ -194,6 +220,9 @@ export class Engine {
     this.camError = false;
     if (v) {
       this.cal = null;
+      this.missingSince = null;
+      this.presenceWarning = false;
+      this.trackingStarted = false;
       this.stopSampling(this.clock());
     }
     this.syncCamera();
@@ -300,7 +329,25 @@ export class Engine {
     }
     if (this.cal && now - this.cal.start > CAL_END) this.finishCal(now);
     this.evaluate(now);
+    this.checkPresence(now);
+    this.checkpoint();
     while (this.prog.news.length) this.toast(this.prog.news.shift()!, "ok");
+  }
+
+  private checkPresence(now: number) {
+    if (this.paused || !this.baseline || this.cal || this.camError) return;
+    if (this.hasPresence(now)) {
+      this.trackingStarted = true;
+      this.missingSince = null;
+      this.presenceWarning = false;
+      return;
+    }
+    if (!this.trackingStarted) return;
+    this.missingSince ??= now;
+    if (this.presenceWarning || now - this.missingSince < 3) return;
+    this.presenceWarning = true;
+    this.toast("No te vemos. Muestra tu cara y tus hombros para reanudar el seguimiento.", "warn");
+    if (this.settings.snd_mode !== "Silencio") this.emit({ type: "sound", kind: "beep", repeat: 1 });
   }
 
   private evaluate(now: number) {

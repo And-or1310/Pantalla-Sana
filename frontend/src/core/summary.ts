@@ -13,21 +13,27 @@ const ALERT_TIPS: Record<string, string> = {
 };
 const RULE_NAME: Record<string, string> = { slouch: "espalda", close: "distancia", tilt: "hombros", roll: "cabeza", blink: "parpadeo", sleep: "sueño", pause: "descansos" };
 const mean = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+const postureTime = (day: DayStat) => day.posture_sec ?? day.session_min * 60;
+const postureAverage = (days: DayStat[]) => {
+  const seconds = days.reduce((total, day) => total + postureTime(day), 0);
+  if (!seconds) return mean(days.map((day) => day.posture_pct as number));
+  return days.reduce((total, day) => total + (day.good_posture_sec ?? (day.posture_pct as number) * postureTime(day) / 100), 0) * 100 / seconds;
+};
 
 export function buildSummary(days: DayStat[], slots: SlotStat[]): Summary {
   const data = days.filter((d) => d.posture_pct !== null);
   if (!data.length)
     return { headline: "Aún no tengo datos suficientes", source: "local", points: ["Usa la app unos minutos con la cámara activa y vuelve aquí."],
       tips: [], goal: "Completa tu primera sesión de 10 minutos con buena postura." };
-  const pc = (d: DayStat) => d.posture_pct as number;
-  const avg = mean(data.map(pc));
+  const avg = postureAverage(data);
   const headline = avg >= 80 ? "Semana excelente para tu espalda" : avg >= 60 ? "Vas bien, con margen para mejorar" : "Tu espalda pidió más pausas esta semana";
-  const points = [`Buena postura el ${avg.toFixed(0)}% del tiempo, con ${(days.reduce((a, d) => a + d.session_min, 0) / 60).toFixed(1)} h frente a la pantalla.`];
+  const minutes = days.reduce((total, day) => total + (day.session_sec ?? day.session_min * 60), 0) / 60;
+  const points = [`Buena postura el ${avg.toFixed(0)}% del tiempo analizado, con ${minutes.toFixed(1)} min de seguimiento válido en ${days.filter((day) => (day.session_sec ?? day.session_min * 60) > 0).length} días.`];
   const tips: string[] = [];
 
   if (data.length >= 4) {
     const half = Math.floor(data.length / 2);
-    const delta = mean(data.slice(half).map(pc)) - mean(data.slice(0, half).map(pc));
+    const delta = postureAverage(data.slice(half)) - postureAverage(data.slice(0, half));
     points.push(delta >= 3 ? `Tu postura mejoró ${delta.toFixed(0)} puntos en la segunda mitad de la semana.`
       : delta <= -3 ? `Tu postura bajó ${(-delta).toFixed(0)} puntos en la segunda mitad de la semana.` : "Tu postura se mantuvo estable durante la semana.");
   }
@@ -36,14 +42,14 @@ export function buildSummary(days: DayStat[], slots: SlotStat[]): Summary {
     const worst = known.reduce((a, b) => ((b.bad_pct as number) > (a.bad_pct as number) ? b : a));
     if ((worst.bad_pct as number) >= 25) {
       points.push(`Te encorvas más ${SLOT_PHRASE[worst.name]} (${worst.bad_pct}% del tiempo).`);
-      tips.push(worst.name !== "madrugada" ? `Programa una pausa corta a media ${worst.name}.` : "Intenta no trabajar de madrugada: es cuando peor te sientas.");
+      tips.push(`Por la mayor proporción de encorvamiento ${SLOT_PHRASE[worst.name]}, programa una pausa en esa franja.`);
     }
   }
   const bpms = days.map((d) => d.bpm_avg).filter((x): x is number => x !== null);
   if (bpms.length) {
     const b = mean(bpms);
-    points.push(`Parpadeas unas ${b.toFixed(0)} veces por minuto` + (b < 10 ? " (es poco: lo normal es 12 a 20)." : "."));
-    if (b < 10) tips.push(ALERT_TIPS.blink);
+    points.push(`Promedio de los días con datos de ojos: ${b.toFixed(0)} parpadeos por minuto.`);
+    if (b < 10) tips.push(`Por el bajo parpadeo registrado, ${ALERT_TIPS.blink.charAt(0).toLowerCase() + ALERT_TIPS.blink.slice(1)}`);
   }
   const totals: Record<string, number> = {};
   for (const d of days) for (const [k, v] of Object.entries(d.alerts)) totals[k] = (totals[k] ?? 0) + (v as number);
@@ -51,10 +57,10 @@ export function buildSummary(days: DayStat[], slots: SlotStat[]): Summary {
   if (ent.length) {
     const [top, cnt] = ent.reduce((a, b) => (b[1] > a[1] ? b : a));
     points.push(`El aviso más frecuente fue el de ${RULE_NAME[top] ?? top} (${cnt} veces).`);
-    if (cnt >= 3 && !tips.includes(ALERT_TIPS[top])) tips.push(ALERT_TIPS[top] ?? "");
+    if (cnt >= 3 && ALERT_TIPS[top]) tips.push(`Por los ${cnt} avisos de ${RULE_NAME[top] ?? top}, ${ALERT_TIPS[top].charAt(0).toLowerCase() + ALERT_TIPS[top].slice(1)}`);
   }
   const target = avg >= 95 ? 100 : Math.min(100, Math.floor(avg / 5) * 5 + 5);
-  const goal = avg >= 95 ? "¡Casi perfecto! Mantén tu rutina esta semana." : `Meta de la semana: llegar al ${target}% de buena postura (hoy vas en ${avg.toFixed(0)}%).`;
+  const goal = avg >= 95 ? "¡Casi perfecto! Mantén tu rutina esta semana." : `Meta de la semana: llegar al ${target}% de buena postura (en el periodo analizado vas en ${avg.toFixed(0)}%).`;
   return { headline, points, tips: tips.filter(Boolean).slice(0, 3), goal, source: "local" };
 }
 
@@ -73,6 +79,17 @@ async function http(url: string, init: RequestInit, ms: number) {
   try { return await fetch(url, { ...init, signal: ac.signal }); } finally { clearTimeout(t); }
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export type SummaryAvailability = {
+  available: boolean;
+  retry_after: number;
+};
+export async function summaryAvailability(base: string): Promise<SummaryAvailability> {
+  if (!base) throw new Error("El servicio de IA no está configurado");
+  const response = await http(base.replace(/\/$/, "") + "/summary/status", {}, 8000);
+  if (!response.ok) throw new Error("No se pudo comprobar la disponibilidad de la IA.");
+  return response.json();
+}
 
 export async function pingProxy(base: string): Promise<number> {
   if (!/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)/.test(base)) throw new Error("La dirección del servicio no está configurada");

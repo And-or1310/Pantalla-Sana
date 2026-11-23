@@ -118,7 +118,13 @@ export default function App() {
         push({ kind: "alert", msg: e.msg, accent: e.accent, card: e.card, content: e.content ?? null }, 9000);
         if (document.hidden && Notification.permission === "granted") new Notification("Pantalla Sana", { body: e.msg });
         break;
-      case "toast": push({ kind: "toast", msg: e.msg, tone: e.tone ?? "ok" }, 6000); break;
+      case "toast":
+        push({ kind: "toast", msg: e.msg, tone: e.tone ?? "ok" }, 6000);
+        if (e.tone === "warn" && e.msg.startsWith("No te vemos.") && document.hidden
+          && typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification("Pantalla Sana", { body: e.msg });
+        }
+        break;
       case "rescue":
         recordActivity(`Corregiste a tiempo · +${e.xp} XP`, "correction");
         if (e.new_card) setAlbumVersion((v) => v + 1);
@@ -154,7 +160,8 @@ export default function App() {
     setOpeningWidget(true);
     let popup: Window | undefined;
     try {
-      popup = await floatingApi.requestWindow(floatingSize(size, engine.settings.preview));
+      const preview = ls.get<Preview>("ps.widgetPreview", engine.settings.preview);
+      popup = await floatingApi.requestWindow(floatingSize(size, preview));
       const doc = popup.document;
       doc.title = "Pantalla Sana";
       doc.documentElement.lang = "es";
@@ -262,12 +269,28 @@ export default function App() {
           ? "Se sincronizan tu historial, álbum, progreso, ajustes e imágenes y sonidos de aviso que elijas guardar."
           : "Conectando con el perfil de tu cuenta…"}</p>
         <p className="muted">La cámara seleccionada y su calibración dependen de este equipo.</p>
+        <p role="status">{auth.syncStatus === "synced" ? "Datos sincronizados."
+          : auth.syncStatus === "conflict" ? "El perfil cambió en otro equipo. Tus métricas se recuperaron y el progreso pendiente conserva una copia local."
+          : "Hay cambios guardados en este navegador pendientes de confirmar."}</p>
+        {auth.pendingCount > 0 && <div className="row">
+          <button className="btn" disabled={accountBusy} onClick={() => void accountAction(() => account.recoverPending(), "No se pudo recuperar la sesión.")}>Reintentar sincronización</button>
+          <button className="btn" onClick={() => {
+            const url = URL.createObjectURL(new Blob([JSON.stringify(account.pendingBackup(), null, 2)], { type: "application/json" }));
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "pantalla-sana-recuperacion.json";
+            link.click();
+            window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+          }}>Descargar copia pendiente</button>
+          {auth.syncStatus === "conflict" && <button className="btn" onClick={() => account.keepCloudProgress()}>Conservar progreso de la cuenta y descartar copia pendiente</button>}
+        </div>}
         {importButton}
         {auth.canImportProfile && <div className="row">
           <button className="btn" disabled={accountBusy} onClick={() => void accountAction(() => account.importGuestProfile(),
             "No pudimos importar el perfil de invitado. Si estás siguiendo desde otro equipo, páusalo y vuelve a intentarlo.")}>
             Importar álbum, progreso y ajustes de este navegador
           </button>
+          <p className="muted">Se añadirán tus cartas y tu progreso de invitado. Las preferencias de la cuenta tienen prioridad.</p>
         </div>}
       </>
       : <><p className="muted">{auth.ready ? "Modo invitado. Inicia sesión para sincronizar tu historial." : "Comprobando tu sesión…"}</p>{accountButton}</>}

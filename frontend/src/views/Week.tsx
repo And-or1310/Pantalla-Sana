@@ -1,7 +1,8 @@
 import { Lightbulb, LockKeyhole, Sparkles, Target } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { account } from "../core/account";
+import { reportCanRefresh, reportFingerprint, REPORT_INTERVAL_MS, type SavedReport } from "../core/reports";
 import type { AIStatus, PingResult, Summary, SummaryPayload, WeekResponse } from "../lib/types";
 
 type Bar = { label: string; value: number | null; note?: string };
@@ -33,14 +34,19 @@ function Bars({ title, data, max, unit, tone }: { title: string; data: Bar[]; ma
 
 type Prov = AIStatus["provider"];
 const PROV_NAME: Record<string, string> = { local: "tu navegador", proxy: "el servicio de IA del equipo" };
+type Availability = { available: boolean; retryAt: number; report: SavedReport | null; error: string };
 
-function AICard({ ai, busy, onProvider, onRun }: { ai: AIStatus; busy: boolean; onProvider: (p: Prov) => void; onRun: () => void }) {
+function AICard({ ai, busy, canGenerate, remainingSeconds, serviceMessage, demo, onProvider, onRun }: {
+  ai: AIStatus; busy: boolean; canGenerate: boolean; remainingSeconds: number; serviceMessage: string; demo: boolean;
+  onProvider: (p: Prov) => void; onRun: () => void;
+}) {
   const [ping, setPing] = useState<string>("");
   const on = ai.provider === "proxy";
+  const wait = remainingSeconds >= 60 ? `${Math.ceil(remainingSeconds / 60)} min` : `${remainingSeconds} s`;
   return (
     <section className="card ai-card">
-      <h3><Sparkles aria-hidden="true" /> Redactar con IA <span className="badge">opcional · apagada por defecto</span></h3>
-      <p className="muted small">Elige cómo se redacta el resumen de la semana. Para usar IA, selecciona «Con IA» y pulsa «Mejorar con IA».</p>
+      <h3><Sparkles aria-hidden="true" /> Redactar con IA <span className="badge">opcional</span></h3>
+      <p className="muted small">El resumen local aplica reglas a tus métricas. La IA selecciona hallazgos y propone hábitos según tus resultados. Selecciona «Con IA» y pulsa «Mejorar con IA».</p>
       <div className="seg" role="radiogroup" aria-label="Redacción del resumen">
         {([["local", "Sin IA (local)"], ["proxy", "Con IA"]] as [Prov, string][]).map(([v, n]) => (
           <button key={v} role="radio" aria-checked={ai.provider === v} className={ai.provider === v ? "on" : ""} disabled={busy} onClick={() => onProvider(v)}>{n}</button>
@@ -56,7 +62,11 @@ function AICard({ ai, busy, onProvider, onRun }: { ai: AIStatus; busy: boolean; 
           {ping && <small role="status" className={ping.startsWith("✓") ? "ok-txt" : "muted"}>{ping}</small>}
         </div>
       )}
-      <button className="btn primary" disabled={!on || busy} onClick={onRun}>{busy ? "Redactando…" : <><Sparkles aria-hidden="true" /> Mejorar con IA</>}</button>
+      {on && <button className="btn primary" disabled={busy || !canGenerate} onClick={onRun}>
+        {busy ? "Redactando…" : !canGenerate ? remainingSeconds > 0 ? `Disponible en ${wait}` : serviceMessage ? "IA no disponible" : "Resumen actualizado" : <><Sparkles aria-hidden="true" /> {demo ? "Mejorar ejemplo con IA" : "Mejorar con IA"}</>}
+      </button>}
+      {on && <p className="muted small" role="status">{serviceMessage ||
+        (remainingSeconds > 0 ? `Podrás solicitar otra lectura en ${wait}, si hay datos nuevos.` : "La lectura local se actualiza automáticamente.")}</p>}
       {on && <p className="muted small">Al pulsar, se enviarán a <b>{PROV_NAME.proxy}</b> únicamente los números del cuadro de privacidad.
         Si falla o no hay internet, verás el resumen local.</p>}
     </section>
@@ -69,56 +79,125 @@ export default function Week({ revision, signedIn }: { revision: number; signedI
   const [week, setWeek] = useState<WeekResponse | null>(null);
   const [localSummary, setLocalSummary] = useState<Summary | null>(null);
   const [aiSummary, setAiSummary] = useState<Summary | null>(null);
+  const [report, setReport] = useState<SavedReport | null>(null);
   const [payload, setPayload] = useState<SummaryPayload | null>(null);
   const [error, setError] = useState(false);
   const [ai, setAi] = useState<AIStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(Date.now);
+  const [availability, setAvailability] = useState<Availability | null>(null);
+  const [generationNote, setGenerationNote] = useState("");
+  const [localUpdatedAt, setLocalUpdatedAt] = useState<number | null>(null);
+  const availabilityRequest = useRef(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  const load = useCallback((resetAi = true) => {
-    Promise.all([api<WeekResponse>("/week"), api<Summary>("/summary"), api<SummaryPayload>("/summary/payload"), api<AIStatus>("/ai")])
-      .then(([w, s, p, a]) => { setWeek(w); setLocalSummary(s); if (resetAi) setAiSummary(null); setPayload(p); setAi(a); setError(false); })
+  const load = useCallback(() => {
+    Promise.all([api<WeekResponse>("/week"), api<Summary>("/summary"), api<SummaryPayload>("/summary/payload"),
+      api<AIStatus>("/ai"), api<SavedReport | null>("/summary/ai")])
+      .then(([w, s, p, a, saved]) => {
+        setWeek(w); setLocalSummary(s); setAiSummary(saved?.summary ?? null); setReport(saved);
+        setLocalUpdatedAt(Date.now()); setNow(Date.now());
+        setPayload(p); setAi(a); setError(false);
+      })
       .catch(() => setError(true));
   }, []);
   useEffect(() => {
-    if (!signedIn) { load(); return; }
     let active = true;
-    const refresh = (initial = false) => {
-      void account.refreshHistory().then(() => { if (active) load(initial); }).catch(() => { if (active) setError(true); });
+    const refresh = () => {
+      const history = signedIn ? account.refreshHistory() : Promise.resolve();
+      void history.then(() => { if (active) load(); }).catch(() => { if (active) setError(true); });
     };
-    refresh(true);
+    refresh();
     const timer = window.setInterval(refresh, 10000);
     return () => { active = false; window.clearInterval(timer); };
   }, [load, revision, signedIn]);
+  useEffect(() => {
+    if (ai?.provider !== "proxy") { setAvailability(null); return; }
+    let active = true;
+    const refresh = () => {
+      const request = ++availabilityRequest.current;
+      void api<Availability | null>("/ai/availability").then((status) => {
+        if (active && request === availabilityRequest.current) {
+          setAvailability(status);
+          setNow(Date.now());
+        }
+      }).catch(() => {
+        if (active && request === availabilityRequest.current) setAvailability({ available: false, retryAt: 0, report: null, error: "No se pudo comprobar la disponibilidad de IA." });
+      });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 10000);
+    return () => { active = false; ++availabilityRequest.current; window.clearInterval(timer); };
+  }, [ai?.provider]);
 
-  const toggleDemo = () => api("/week/demo", week?.has_demo ? "DELETE" : "POST").then(() => load()).catch(() => setError(true));
+  const toggleDemo = () => api("/week/demo", week?.has_demo ? "DELETE" : "POST").then(() => {
+    setGenerationNote(""); load();
+  }).catch(() => setError(true));
 
   const refreshAi = () => api<AIStatus>("/ai").then(setAi).catch(() => setError(true));
-  const setProvider = (p: Prov) => api("/settings", "PUT", { ai_provider: p }).then(refreshAi).catch(() => setError(true));
-  const runAi = () => { setBusy(true); api<Summary>("/summary/ai", "POST").then(setAiSummary).catch(() => setError(true)).finally(() => setBusy(false)); };
+  const setProvider = (p: Prov) => {
+    setGenerationNote("");
+    void api("/settings", "PUT", { ai_provider: p }).then(() => { void refreshAi(); load(); }).catch(() => setError(true));
+  };
+  const runAi = () => {
+    setBusy(true);
+    api<Summary>("/summary/ai", "POST").then(async (summary) => {
+      if (summary.source === "proxy") {
+        setAiSummary(summary);
+      }
+      setGenerationNote(summary.note ?? "");
+      const request = ++availabilityRequest.current;
+      const status = await api<Availability | null>("/ai/availability");
+      if (request === availabilityRequest.current) setAvailability(status);
+      setReport(status?.report ?? await api<SavedReport | null>("/summary/ai"));
+      setNow(Date.now());
+    }).catch(() => setError(true)).finally(() => setBusy(false));
+  };
 
   const sum = (ai?.provider === "proxy" && aiSummary) || localSummary;
   if (error && !week) return <p className="loading">No pude cargar tu semana. {signedIn ? "Revisa tu conexión con Supabase." : "Vuelve a intentarlo."}</p>;
   if (!week || !sum) return <p className="loading">Cargando tu semana…</p>;
+  const minutes = week.days.reduce((total, day) => total + (day.session_sec ?? day.session_min * 60), 0) / 60;
+  const recordedDays = week.days.filter((day) => (day.session_sec ?? day.session_min * 60) > 0).length;
+  const staleReport = report && reportCanRefresh(report, reportFingerprint(week.days.map((day) => day.date), payload?.payload), now);
+  const readyAt = Math.max(report ? report.createdAt + REPORT_INTERVAL_MS : 0, availability?.retryAt ?? 0);
+  const remainingSeconds = Math.max(0, Math.ceil((readyAt - now) / 1000));
+  const serviceMessage = availability?.error ?? (!availability && ai?.provider === "proxy" ? "Comprobando disponibilidad de IA…" : "");
+  const canGenerate = !serviceMessage && remainingSeconds === 0 && (!report || !!staleReport);
 
   return (
     <main className="page week-page">
       <div className="page-head">
         <div><h2>Mi semana</h2><p className="muted">Tus hábitos de los últimos 7 días</p></div>
-        <button className="btn" disabled={busy} onClick={toggleDemo}>{week.has_demo ? "Quitar datos de ejemplo" : "Cargar datos de ejemplo"}</button>
+        {week.has_demo && <button className="btn" disabled={busy} onClick={toggleDemo}>Quitar datos de ejemplo</button>}
       </div>
       {error && <p className="notice" role="status">No se pudo actualizar el historial. Mostramos la última versión disponible.</p>}
-      {week.has_demo && <p className="notice" role="status">Estás viendo <b>datos de ejemplo</b> para la demostración. Se reemplazan solos con tus datos reales.</p>}
-
+      <p className="notice">{minutes.toFixed(1)} min {week.has_demo ? "mostrados, incluidos días de ejemplo," : "de seguimiento válido"} en {recordedDays} de {week.days.length} días.
+        {" "}Los días sin datos suficientes aparecen vacíos.</p>
+      {week.has_demo && <p className="notice" role="status">Este resumen y las gráficas <b>incluyen datos de ejemplo</b> en los días sin registros.
+        {" "}Pulsa «Quitar datos de ejemplo» para ver únicamente tu historial real.</p>}
       <div className="week-overview">
-        {ai && <AICard key={ai.provider} ai={ai} busy={busy} onProvider={setProvider} onRun={runAi} />}
+        {ai && <AICard key={ai.provider} ai={ai} busy={busy} canGenerate={canGenerate}
+          remainingSeconds={remainingSeconds} serviceMessage={serviceMessage} demo={week.has_demo} onProvider={setProvider} onRun={runAi} />}
         <section className="card summary" aria-live="polite" aria-busy={busy}>
         <small className="label">{sum.source === "local" ? "Resumen de la semana · generado en tu equipo" : `Redactado por ${PROV_NAME[sum.source]} con tus números agregados`}</small>
         <h3>{sum.headline}</h3>
+        {sum.source === "local" && localUpdatedAt && <p className="muted small">
+          Actualizado a las {new Date(localUpdatedAt).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}.
+          {" "}Se recalcula cada diez segundos mientras esta pantalla está abierta.
+        </p>}
+        {sum.source !== "local" && report && <p className="muted small">
+          Generado el {new Date(report.createdAt).toLocaleString("es", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.
+          {staleReport && " Hay datos nuevos. Puedes generar otra lectura con Mejorar con IA."}
+        </p>}
         <ul>{sum.points.map((p) => <li key={p}>{p}</li>)}</ul>
         {sum.tips.length > 0 && (<><small className="label">Para esta semana</small>
           <ul className="tips">{sum.tips.map((t) => <li key={t}><Lightbulb aria-hidden="true" /> {t}</li>)}</ul></>)}
         <p className="goal"><Target aria-hidden="true" /> {sum.goal}</p>
-        {sum.note && <p className="notice" role="status">{sum.note}</p>}
+        {(generationNote || sum.note) && <p className="notice" role="status">{generationNote || sum.note}</p>}
         {sum.source !== "local" && <button className="btn" disabled={busy} onClick={() => setProvider("local")}>Volver al resumen local</button>}
         </section>
       </div>
@@ -127,7 +206,7 @@ export default function Week({ revision, signedIn }: { revision: number; signedI
         <Bars title="Buena postura por día (%)" max={100} unit="%" tone={postureTone}
           data={week.days.map((d) => ({ label: d.label, value: d.posture_pct }))} />
         <Bars title="Avisos por día" max={Math.max(5, ...week.days.map((d) => d.alerts_total))} unit=" avisos"
-          data={week.days.map((d) => ({ label: d.label, value: d.session_min > 0 ? d.alerts_total : null }))} />
+          data={week.days.map((d) => ({ label: d.label, value: (d.session_sec ?? d.session_min * 60) > 0 ? d.alerts_total : null }))} />
         <Bars title="¿Cuándo te encorvas? (% del tiempo)" max={100} unit="%" tone={(v) => (v >= 35 ? "bad" : v >= 20 ? "warn" : "ok")}
           data={week.slots.map((s) => ({ label: s.name, value: s.bad_pct }))} />
       </div>
@@ -144,6 +223,11 @@ export default function Week({ revision, signedIn }: { revision: number; signedI
           sin fechas exactas ni tu nombre.</p>
         <pre>{JSON.stringify(payload?.payload, null, 2)}</pre>
       </details>
+      {!week.has_demo && <details className="card">
+        <summary>Datos de demostración</summary>
+        <p>Rellena los días sin registros con ejemplos para probar las gráficas. Tus días reales se conservan.</p>
+        <button className="btn" disabled={busy} onClick={toggleDemo}>Cargar datos de ejemplo</button>
+      </details>}
     </main>
   );
 }

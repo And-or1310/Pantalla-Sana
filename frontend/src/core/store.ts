@@ -266,6 +266,7 @@ export class Metrics {
     const wd = (new Date(y, m - 1, dd).getDay() + 6) % 7;
     const tot = d.total_sec;
     return { date: key, label: WEEKDAYS[wd], demo: !!d.demo, session_min: Math.round(d.session_sec / 60),
+      session_sec: d.session_sec, posture_sec: tot, good_posture_sec: d.good_sec,
       posture_pct: tot >= 30 ? Math.round((d.good_sec / tot) * 100) : null,
       alerts: { ...d.alerts }, alerts_total: Object.values(d.alerts).reduce((a, b) => a + b, 0),
       bpm_avg: d.bpm_sec >= 60 ? Math.round((d.bpm_w / d.bpm_sec) * 10) / 10 : null };

@@ -69,6 +69,11 @@ check("pausado -> sleep y EN PAUSA", snap.mood === "sleep" && snap.hero.tag === 
 
 console.log("7) Configuración de cámara y presencia");
 const monitored = new Engine(true, () => t);
+let cameraIdentity = "usb:640x480";
+monitored.vision.calibrationIdentity = () => cameraIdentity;
+monitored.setCalibrationScope("test-user");
+const presenceEvents: any[] = [];
+monitored.subscribe((event) => presenceEvents.push(event));
 const opened: string[] = [];
 let stopped = 0;
 monitored.vision.start = async (id, _onFrame, onReady) => { opened.push(id); onReady(); };
@@ -95,8 +100,28 @@ for (; t < offscreen; t += 0.1) {
 }
 check("fuera de cuadro se detiene el registro y queda la cámara encendida",
   monitored.snapshot().session_sec === seconds && monitored.snapshot().camera_on && monitored.snapshot().hero.tag === "TE BUSCO");
+check("perder el cuadro produce un solo aviso durante la ausencia",
+  presenceEvents.filter((event) => event.type === "toast" && event.msg.startsWith("No te vemos.")).length === 1);
+check("el aviso de ausencia emite sonido", presenceEvents.some((event) => event.type === "sound" && event.kind === "beep"));
 t = run(monitored, GOOD, t, 2);
 check("las métricas se reanudan al regresar", monitored.snapshot().session_sec > seconds);
+const reloaded = new Engine(true, () => t);
+reloaded.setCalibrationScope("test-user");
+reloaded.vision.calibrationIdentity = () => cameraIdentity;
+reloaded.vision.start = async (_id, _frame, ready) => { ready(); };
+reloaded.vision.stop = () => {};
+reloaded.configureCamera("usb");
+check("recargar con la misma cuenta y cámara recupera la calibración", reloaded.snapshot().calibrated);
+reloaded.setCalibrationScope("other-user");
+reloaded.configureCamera("usb");
+check("otra cuenta no reutiliza la calibración", !reloaded.snapshot().calibrated);
+reloaded.setCalibrationScope("test-user");
+const calibrationTime = t;
+t += 31 * 60;
+reloaded.configureCamera("usb");
+check("la calibración reciente caduca después de 30 minutos", !reloaded.snapshot().calibrated);
+t = calibrationTime;
+cameraIdentity = "integrada:640x480";
 monitored.configureCamera("integrada");
 check("cambiar de cámara exige calibrar de nuevo", opened.at(-1) === "integrada" && !monitored.snapshot().calibrated);
 monitored.setPaused(true);
@@ -136,4 +161,12 @@ restoredPlayer.good(25);
 restoredPlayer.save();
 check("el XP parcial continúa al restaurar el perfil de otro equipo", restoredPlayer.d.xp === 1);
 check("guardar el progreso de cuenta no sobrescribe el álbum local", mem.get("ps.progress") === guestProgress);
+const longSession = new Metrics(false);
+longSession.record(t, 3600, true, true, null);
+const shortSession = new Metrics(false);
+shortSession.record(t, 60, true, false, null);
+const weighted = buildSummary([longSession.week(t).at(-1)!, shortSession.week(t).at(-1)!], []);
+check("el resumen pondera la postura por duración", weighted.points[0].includes("2%"));
+check("un día sin datos no se presenta como mala postura",
+  buildSummary(new Metrics(false).week(t), []).headline === "Aún no tengo datos suficientes");
 console.log("\nTodo bien ✔");

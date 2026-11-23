@@ -30,7 +30,7 @@ export default function CameraSetup({ state, deviceId, onDevice, onCalibrate, on
   const message = state?.cam_error ? "Revisa el permiso de cámara o elige otro dispositivo."
     : !cameraOn ? "Preparando tu cámara…"
     : state.calibrating ? "Quédate en esa posición mirando la pantalla."
-    : state.calibrated ? "Calibración lista. Ya puedes continuar."
+    : state.calibrated ? state.present ? "Calibración lista. Ya puedes continuar." : "Muestra tu cara y tus hombros para usar tu calibración."
     : !state.present ? "No detectamos tu cara y tus hombros. Destapa la cámara y acomódate frente a ella."
     : state.calibration_failed ? "La calibración se interrumpió. Mantén la postura y vuelve a intentarlo."
     : "Siéntate derecho y pulsa Calibrar postura.";
@@ -52,7 +52,10 @@ export default function CameraSetup({ state, deviceId, onDevice, onCalibrate, on
     </div>
     <p role="status">{message}</p>
     {state?.calibrating ? <progress aria-label="Calibración" max={1} value={state.cal_progress} />
-      : state?.calibrated ? <button className="btn primary" onClick={onContinue}>Continuar</button>
+      : state?.calibrated ? <>
+        <button className="btn primary" disabled={!state.present} onClick={onContinue}>Continuar</button>
+        <button className="btn" disabled={!state.present} onClick={onCalibrate}>Calibrar de nuevo</button>
+      </>
       : state?.cam_error ? <button className="btn primary" onClick={() => onDevice(deviceId)}>Reintentar</button>
       : <button className="btn primary" disabled={!cameraOn || !state?.present} onClick={onCalibrate}>Calibrar postura</button>}
     {!state?.calibrated && <button className="btn" onClick={onSkip}>Configurar la cámara después</button>}

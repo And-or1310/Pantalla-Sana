@@ -3,6 +3,7 @@ import { engine, validateUserFile } from "./engine";
 import { clearUserMedia, loadUserMedia, readGuestMedia, setMedia, type MediaKind } from "./media";
 import { dayKey, DEFAULT_SETTINGS, loadSettings, ls, mergeSettings, Metrics, Progress, type DayData, type ProgData } from "./store";
 import type { Settings } from "../lib/types";
+import { PendingSessions, type PendingSession } from "./pending";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -10,7 +11,7 @@ const client = url && key ? createClient(url, key, { auth: { flowType: "pkce" } 
 const POLL_MS = 3000;
 const CLOCK_MARGIN_MS = 1000;
 const MEDIA_BUCKET = "pantalla-profile-media";
-const SYNC_SETTINGS = ["sens", "img_mode", "snd_mode", "img_path", "snd_path", "net", "preview", "groups", "demo", "ntfy", "ai_provider"] as const;
+const SYNC_SETTINGS = ["sens", "img_mode", "snd_mode", "img_path", "snd_path", "net", "groups", "demo", "ntfy", "ai_provider"] as const;
 const MEDIA_FIELDS = { image: "img_path", sound: "snd_path" } as const;
 const THEMES = ["auto", "light", "dark"] as const;
 const SIZES = ["small", "medium", "large"] as const;
@@ -29,6 +30,7 @@ type MonitorReply = { status: "active"; ms: number; profile?: CloudProfile } | {
 type Scope = {
   user: User | null; ready: boolean; locked: boolean; message: string; revision: number; importNoticeDismissed: boolean;
   profileReady: boolean; settingsRevision: number; progressRevision: number; appearance: Appearance; canImportProfile: boolean;
+  syncStatus: "synced" | "pending" | "conflict"; pendingCount: number;
 };
 type Lease = {
   userId: string;
@@ -38,7 +40,9 @@ type Lease = {
   monotonicDeadline: number;
   progressStamp: string;
   temporary: boolean;
+  sequence: number;
   inFlight?: Promise<void>;
+  syncFailed?: boolean;
 };
 
 function localDate(daysAgo = 0) {
@@ -49,11 +53,23 @@ function localDate(daysAgo = 0) {
 
 function clock() { return { wall: Date.now(), monotonic: performance.now() }; }
 
+async function guestImportSource() {
+  const key = "ps.metricsImportSource";
+  const prepare = () => {
+    const id = ls.get<string>(key, "") || crypto.randomUUID();
+    ls.set(key, id);
+    if (ls.get<string>(key, "") !== id) throw new Error("Could not preserve import identity");
+    return id;
+  };
+  return navigator.locks ? navigator.locks.request(key, prepare) : prepare();
+}
+
 class Account {
   readonly enabled = client !== null;
   private scope: Scope = {
     user: null, ready: !client, locked: false, message: "", revision: 0, importNoticeDismissed: false,
     profileReady: !client, settingsRevision: 0, progressRevision: 0, appearance: guestAppearance(), canImportProfile: false,
+    syncStatus: "synced", pendingCount: 0,
   };
   private readonly listeners = new Set<() => void>();
   private readonly guestMetrics = engine.metrics;
@@ -71,6 +87,11 @@ class Account {
   private host: Window | null = null;
   private refreshRequest: Promise<void> | null = null;
   private imported = false;
+  private pending = new PendingSessions();
+  private recovering = false;
+  private lastCheckpoint = 0;
+  private lastRecovery = 0;
+  private recoveryConflicts = new Set<string>();
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -86,6 +107,7 @@ class Account {
   start() {
     if (!client) { void loadUserMedia(); return; }
     engine.setMonitoringAccess(() => this.scope.ready && (!this.scope.user || this.hasLease()));
+    engine.setCheckpoint(() => this.checkpoint());
     client.auth.onAuthStateChange((_event, session) => this.changeUser(session?.user ?? null));
     window.addEventListener("pagehide", () => { void this.stop(); });
     this.setTimerWindow(window);
@@ -97,21 +119,29 @@ class Account {
     this.host = host;
     this.timer = host.setInterval(() => {
       void this.heartbeat();
+      if (!this.lease && !this.starting && !this.releasing && Date.now() - this.lastRecovery > 8000) {
+        void this.recoverPending();
+      }
       if (Date.now() - this.lastProfilePoll >= 8000) void this.refreshProfile().catch(() => {});
     }, POLL_MS);
   }
 
   private changeUser(user: User | null) {
     if (this.scope.ready && this.scope.user?.id === user?.id) return;
+    this.checkpoint(true);
     ++this.sessionChange;
     this.lease = null;
     this.refreshRequest = null;
     this.profileRequest = null;
+    this.recoveryConflicts.clear();
     this.preferenceVersion = -1;
     this.lastProfilePoll = 0;
     this.mediaLoads = {};
+    engine.setCalibrationScope(user?.id ?? "guest");
     clearUserMedia();
-    engine.setSettingsScope(user ? { ...DEFAULT_SETTINGS } : loadSettings(), !user);
+    const guestSettings = loadSettings();
+    const preview = user ? ls.get(`ps.cameraPreview.${user.id}`, guestSettings.preview) : guestSettings.preview;
+    engine.setSettingsScope(user ? { ...DEFAULT_SETTINGS, preview } : guestSettings, !user);
     engine.prog = user ? new Progress(false) : this.guestProgress;
     if (!user) void loadUserMedia();
     if (this.scope.ready || user) {
@@ -129,11 +159,13 @@ class Account {
       importNoticeDismissed: !!user && ls.get(this.importNoticeKey(user.id), false),
       profileReady: !user, settingsRevision: this.scope.settingsRevision + 1, progressRevision: this.scope.progressRevision + 1,
       appearance: user ? { theme: "auto", widgetSize: "medium" } : guestAppearance(), canImportProfile: false,
+      pendingCount: 0, syncStatus: "synced",
     });
     // Supabase entrega el evento dentro de su actualización de sesión.
     if (user) window.setTimeout(() => {
       void this.refreshHistory().catch(() => {});
       void this.refreshProfile().catch(() => {});
+      void this.recoverPending();
     }, 0);
   }
 
@@ -190,6 +222,11 @@ class Account {
     try {
       if (this.lease) await this.stop();
       await this.releasing;
+      await this.recoverPending();
+      if (this.scope.pendingCount > 0) {
+        this.update({ message: "Hay una sesión pendiente. Espera a que se recupere o revisa su estado en Ajustes." });
+        return false;
+      }
       const waitUntil = Date.now() + 18000;
       let action: MonitorAction = move ? "move" : "claim";
       do {
@@ -200,7 +237,7 @@ class Account {
         if (reply.status === "active") {
           if (reply.profile) this.applyProfile(reply.profile, true);
           const lease = { userId, token, metrics: new Metrics(false), deadline: 0, monotonicDeadline: 0,
-            progressStamp: JSON.stringify(engine.prog.snapshot()), temporary };
+            progressStamp: JSON.stringify(engine.prog.snapshot()), temporary, sequence: 0 };
           this.setDeadline(lease, started, reply.ms);
           this.lease = lease;
           if (!this.hasLease()) { await this.stop(); return false; }
@@ -244,13 +281,19 @@ class Account {
           return;
         }
         this.setDeadline(lease, started, reply.ms);
-      } catch { /* El permiso local vence aunque el servidor deje de responder. */ }
+      } catch {
+        if (this.lease === lease) {
+          lease.syncFailed = true;
+          this.updatePending();
+        }
+      }
     })();
     try { await lease.inFlight; } finally { lease.inFlight = undefined; }
   }
 
   async stop(message = "") {
     engine.setPaused(true);
+    this.checkpoint(true);
     engine.metrics.save();
     const lease = this.lease;
     if (!lease) { await this.releasing; return; }
@@ -265,15 +308,96 @@ class Account {
         void this.refreshHistory().catch(() => {});
       } catch { /* El servidor libera el permiso por vencimiento. */ }
     })();
-    try { await this.releasing; } finally { this.releasing = null; }
+    try { await this.releasing; } finally {
+      this.releasing = null;
+      await this.recoverPending();
+    }
   }
 
   private async syncLease(lease: Lease, action: "sync" | "release") {
+    this.checkpoint(true);
+    const sequence = lease.sequence;
     const snapshot = JSON.stringify(engine.prog.snapshot());
     const progress = snapshot === lease.progressStamp ? undefined : JSON.parse(snapshot) as ProgData;
     const reply = await this.monitor(lease.userId, action, lease.token, lease.metrics, progress);
     lease.progressStamp = snapshot;
+    if (reply.status === "active" || reply.status === "moving" || (action === "release" && reply.status === "ended")) {
+      lease.syncFailed = false;
+      // Ante una respuesta ambigua al liberar, la recuperación confirma la copia.
+      if (reply.status !== "ended") this.pending.remove(lease.userId, lease.token, sequence);
+      this.updatePending();
+    }
     return reply;
+  }
+
+  private checkpoint(force = false) {
+    const lease = this.lease;
+    if (!lease || (!force && Date.now() - this.lastCheckpoint < 1000)) return;
+    this.lastCheckpoint = Date.now();
+    try {
+      this.pending.save(lease.userId, {
+        token: lease.token, sequence: ++lease.sequence, days: lease.metrics.realDays(), progress: engine.prog.snapshot(),
+      });
+      this.updatePending();
+    } catch {
+      engine.setPaused(true);
+      this.update({ syncStatus: "pending", message: "No se pudo guardar la copia de recuperación. Libera espacio en el navegador." });
+    }
+  }
+
+  private updatePending() {
+    // La copia de la sesión activa forma parte del guardado habitual.
+    const count = this.scope.user ? this.pending.listUnconfirmed(this.scope.user.id, this.lease?.token, this.lease?.syncFailed).length : 0;
+    if (count !== this.scope.pendingCount || (count === 0 && this.scope.syncStatus !== "synced")) {
+      this.update({ pendingCount: count, syncStatus: count ? "pending" : "synced" });
+    }
+  }
+
+  async recoverPending() {
+    const user = this.scope.user;
+    if (!client || !user || this.lease || this.releasing || this.recovering) return;
+    this.recovering = true;
+    this.lastRecovery = Date.now();
+    const generation = this.sessionChange;
+    try {
+      this.updatePending();
+      const sessions = this.pending.list(user.id);
+      if (!sessions.length) return;
+      for (const session of sessions) {
+        if (generation !== this.sessionChange) return;
+        const { data, error } = await client.rpc("ps_recover_session", {
+          p_user: user.id, p_token: session.token, p_sequence: session.sequence, p_days: session.days, p_progress: session.progress,
+        }).abortSignal(AbortSignal.timeout(5500));
+        if (error) throw error;
+        if (generation !== this.sessionChange) return;
+        if (data.status === "recovered") this.pending.remove(user.id, session.token, session.sequence);
+        else if (data.status === "conflict") {
+          this.recoveryConflicts.add(session.token);
+          this.update({ syncStatus: "conflict" });
+        }
+      }
+      this.updatePending();
+      if (generation === this.sessionChange) {
+        if (!this.scope.pendingCount && this.scope.message.startsWith("Hay una sesión pendiente.")) this.update({ message: "" });
+        await this.refreshProfile();
+        await this.refreshHistory();
+      }
+    } catch {
+      if (generation === this.sessionChange) this.updatePending();
+    } finally { this.recovering = false; }
+  }
+
+  pendingBackup(): PendingSession[] {
+    return this.scope.user ? this.pending.list(this.scope.user.id) : [];
+  }
+
+  keepCloudProgress() {
+    if (!this.scope.user || this.scope.syncStatus !== "conflict") return;
+    for (const session of this.pending.list(this.scope.user.id)) {
+      if (this.recoveryConflicts.has(session.token)) this.pending.remove(this.scope.user.id, session.token, session.sequence);
+    }
+    this.recoveryConflicts.clear();
+    this.updatePending();
   }
 
   async editProgress<T>(edit: () => T, settle?: () => Promise<void>): Promise<T> {
@@ -303,7 +427,7 @@ class Account {
     const patch: Partial<Scope> = { profileReady: true };
     if (profile.version > this.preferenceVersion) {
       this.preferenceVersion = profile.version;
-      let settings = { ...DEFAULT_SETTINGS };
+      let settings = { ...DEFAULT_SETTINGS, preview: engine.settings.preview };
       for (const field of SYNC_SETTINGS) {
         try { settings = mergeSettings(settings, { [field]: profile.preferences[field] }); } catch { /* Una preferencia antigua puede haber dejado de ser válida. */ }
       }
@@ -320,8 +444,12 @@ class Account {
         patch.progressRevision = this.scope.progressRevision + 1;
       }
       const guest = this.guestProgress.d;
-      patch.canImportProfile = !profile.progress && !ls.get(this.profileImportKey(), false)
-        && (guest.xp > 0 || guest.packs > 0 || Object.keys(guest.album).length > 0 || Object.keys(ls.get("ps.settings", {})).length > 0);
+      const settings = loadSettings();
+      const { theme, widgetSize } = guestAppearance();
+      patch.canImportProfile = !ls.get(this.profileImportKey(), false)
+        && (guest.xp > 0 || guest.packs > 0 || guest.good_today > 0 || Object.keys(guest.album).length > 0
+          || SYNC_SETTINGS.some((field) => JSON.stringify(settings[field]) !== JSON.stringify(DEFAULT_SETTINGS[field]))
+          || theme !== "auto" || widgetSize !== "medium");
     }
     if (Object.entries(patch).some(([key, value]) => this.scope[key as keyof Scope] !== value)) this.update(patch);
   }
@@ -357,8 +485,14 @@ class Account {
 
   updateSettings(patch: Partial<Settings>) {
     if (!this.scope.ready) throw new Error("Comprobando la sesión");
-    if (!this.scope.user) return engine.updateSettings(patch);
-    mergeSettings(engine.settings, patch);
+    const user = this.scope.user;
+    if (!user) return engine.updateSettings(patch);
+    const validated = mergeSettings(engine.settings, patch);
+    if (patch.preview != null) {
+      ls.set(`ps.cameraPreview.${user.id}`, validated.preview);
+      engine.updateSettings({ preview: validated.preview });
+      this.update({ settingsRevision: this.scope.settingsRevision + 1 });
+    }
     const shared: Preferences = Object.fromEntries(SYNC_SETTINGS
       .filter((field) => patch[field] != null).map((field) => [field, patch[field]]));
     return Object.keys(shared).length ? this.savePreferences(shared) : engine.settings;
@@ -421,6 +555,8 @@ class Account {
     const generation = this.sessionChange;
     await this.stop();
     if (generation !== this.sessionChange) return;
+    const source = await guestImportSource();
+    if (generation !== this.sessionChange) return;
     const settings = loadSettings();
     const patch: Preferences = { ...guestAppearance(), ...Object.fromEntries(SYNC_SETTINGS.map((field) => [field, settings[field]])) };
     for (const kind of ["image", "sound"] as const) {
@@ -430,8 +566,8 @@ class Account {
       patch[field] = blob ? await this.uploadPrivate(kind, blob, user.id) : "";
     }
     if (generation !== this.sessionChange) return;
-    const { data, error } = await client.rpc("ps_import_progress", {
-      p_user: user.id, p_progress: this.guestProgress.snapshot(), p_preferences: patch,
+    const { data, error } = await client.rpc("ps_merge_guest_progress", {
+      p_user: user.id, p_source: source, p_progress: this.guestProgress.snapshot(), p_preferences: patch,
     })
       .abortSignal(AbortSignal.timeout(8000));
     if (error) throw error;
@@ -479,13 +615,7 @@ class Account {
     const user = this.scope.user;
     if (!client || !user || !this.canImport()) return;
     const generation = this.sessionChange;
-    const prepareImport = () => {
-      const id = ls.get<string>("ps.metricsImportSource", "") || crypto.randomUUID();
-      ls.set("ps.metricsImportSource", id);
-      if (ls.get<string>("ps.metricsImportSource", "") !== id) throw new Error("Could not preserve import identity");
-      return id;
-    };
-    const source = navigator.locks ? await navigator.locks.request("ps.metricsImportSource", prepareImport) : prepareImport();
+    const source = await guestImportSource();
     if (generation !== this.sessionChange) return;
     const days = Object.fromEntries(Object.entries(this.guestMetrics.realDays())
       .filter(([date]) => date >= localDate(60) && date <= localDate()));

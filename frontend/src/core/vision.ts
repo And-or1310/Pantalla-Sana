@@ -10,6 +10,10 @@ const FACE_MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmar
 export type FrameCb = (raw: Raw, ear: number | null, now: number) => void;
 
 export class Vision {
+  calibrationIdentity() {
+    const settings = this.stream?.getVideoTracks()[0]?.getSettings();
+    return settings?.deviceId ? `${settings.deviceId}:${settings.width}x${settings.height}` : "";
+  }
   video: HTMLVideoElement | null = null;
   active = false;
   lastPose: Lm[] | null = null;
